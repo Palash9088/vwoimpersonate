@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VWO Impersonation Settings</title>
+  <link rel="stylesheet" href="popup.css">
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      padding: 20px;
+      margin: 0;
+      min-width: 320px;
+      background-color: #f0f0f0;
+    }
+    .container {
+      background-color: white;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+    h1 {
+      font-size: 24px;
+      margin-bottom: 10px;
+      color: #333;
+      text-align: center;
+    }
+    h2 {
+      font-size: 18px;
+      margin-top: 20px;
+      margin-bottom: 10px;
+      color: #444;
+    }
+    p {
+      font-size: 14px;
+      color: #666;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .section-description {
+      font-size: 13px;
+      color: #666;
+      margin-bottom: 15px;
+      margin-top: -5px;
+    }
+    label {
+      font-weight: 600;
+      margin-bottom: 5px;
+      display: block;
+      color: #555;
+    }
+    input[type="text"], input[type="email"] {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 15px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      box-sizing: border-box;
+      font-size: 14px;
+    }
+    input[type="text"]:focus, input[type="email"]:focus {
+      outline: none;
+      border-color: #4CAF50;
+      box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2);
+    }
+    button {
+      background-color: #4CAF50;
+      color: white;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      width: 100%;
+      font-size: 16px;
+      transition: background-color 0.3s;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+    .error-message {
+      color: #f44336;
+      margin-top: 10px;
+      text-align: center;
+      font-size: 14px;
+    }
+    .success-message {
+      color: #4CAF50;
+      margin-top: 10px;
+      text-align: center;
+      font-size: 14px;
+    }
+    .section {
+      border-top: 1px solid #eee;
+      padding-top: 15px;
+      margin-top: 15px;
+    }
+    .note {
+      background-color: #fff8e1;
+      padding: 10px;
+      border-radius: 4px;
+      border-left: 4px solid #ffc107;
+      margin-bottom: 15px;
+      font-size: 13px;
+      color: #5d4037;
+    }
+    .required {
+      color: #f44336;
+      margin-left: 3px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>VWO Impersonation Settings</h1>
+    
+    <form id="impersonateForm">
+      <div class="section">
+        <h2>Exit Impersonation Settings</h2>
+        <p class="section-description">
+          These settings are <strong>required</strong> to exit impersonation mode and return to your original account.
+        </p>
+        
+        <div class="note">
+          <strong>Important:</strong> Both Account ID and Email are required for the "Exit Impersonation" function to work properly.
+        </div>
+        
+        <label for="accountIdInput">Your Original Account ID:<span class="required">*</span></label>
+        <input type="text" id="accountIdInput" name="accountId" placeholder="Your Account ID (required)" required>
+        
+        <label for="emailInput">Your Email (for SSO login):<span class="required">*</span></label>
+        <input type="email" id="emailInput" name="email" placeholder="Your email address (required)">
+      </div>
+      
+      <div class="section">
+        <h2>Default Account Settings</h2>
+        <p class="section-description">
+          Optional: Set up a default account to quickly switch to with the "Use Default Account" button or Alt+D shortcut.
+        </p>
+        
+        <label for="defaultAccountIdInput">Default Account ID:</label>
+        <input type="text" id="defaultAccountIdInput" name="defaultAccountId" placeholder="Default Account ID (optional)">
+        
+        <label for="defaultAccountNameInput">Default Account Name:</label>
+        <input type="text" id="defaultAccountNameInput" name="defaultAccountName" placeholder="Default Account Name (optional)">
+      </div>
+      
+      <button type="submit" id="submitButton">Save Settings</button>
+    </form>
+    
+    <p id="statusMessage" class="success-message"></p>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+.popup-container {
+    background-color: #fff; /* Default background color */
+  }
+  
+  .popup-container.red {
+    background-color: #ff0000; /* Red background color */
+  }
+  

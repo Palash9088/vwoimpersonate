@@ -1,0 +1,31 @@
+{
+    "manifest_version": 3,
+    "name": "VWO Impersonate",
+    "version": "1.1",
+    "description": "VWO Account Impersonate Switcher with Default Account Support",
+    "permissions": ["storage", "declarativeContent", "activeTab", "scripting", "tabs"],
+    "host_permissions": [
+        "https://app.vwo.com/*",
+        "https://*.vwo.com/*"
+    ],
+    "action": {
+      "default_popup": "popup.html",
+      "default_icon": {
+        "128": "icon128.png"
+      }
+    },
+    "content_scripts": [
+      {
+        "matches": ["*://app.vwo.com/*", "*://*.vwo.com/*"],
+        "exclude_matches": ["*://app.vwo.com/access*"],
+        "js": ["content.js"],
+        "run_at": "document_end"
+      }
+    ],
+    "background": {
+      "service_worker": "background.js"
+    },
+    "icons": {
+      "128": "icon128.png"
+    }
+  }
