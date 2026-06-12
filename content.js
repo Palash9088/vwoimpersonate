@@ -1309,13 +1309,13 @@ function initializeModal() {
   // Add clipboard paste functionality to accountIdInput
   const accountIdInput = document.getElementById('accountIdInput');
   
-  // Create error message element
+  // Create error message element — appended after the input-row, not inside it
   const errorDiv = document.createElement('div');
   errorDiv.style.color = '#f44336';
   errorDiv.style.fontSize = '12px';
   errorDiv.style.marginTop = '4px';
   errorDiv.style.display = 'none';
-  accountIdInput.parentElement.appendChild(errorDiv);
+  accountIdInput.parentElement.insertAdjacentElement('afterend', errorDiv);
   
   let errorTimeout;
   
