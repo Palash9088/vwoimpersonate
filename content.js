@@ -939,6 +939,7 @@ function initializeModal() {
         </div>
 
       </div>
+      <div class="vwo-modal-credit">Developed with ❤️ at <strong>Wingify / VWO</strong></div>
     </div>
   </div>`;
 
@@ -1220,6 +1221,16 @@ function initializeModal() {
       padding: 4px 0;
     }
     .vwo-result-row strong { color: #4429A2; }
+
+    .vwo-modal-credit {
+      text-align: center;
+      font-size: 11px;
+      color: #aaa;
+      padding: 8px 0 10px;
+      border-top: 1px solid #f0f0f0;
+      flex-shrink: 0;
+    }
+    .vwo-modal-credit strong { color: #4429A2; }
   `;
 
   const modalStyleTag = document.createElement('style');
