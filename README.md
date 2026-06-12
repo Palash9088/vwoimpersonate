@@ -1,5 +1,8 @@
 # VWO Impersonate
 
+> **⚠️ Internal tooling — authorized use only**
+> This extension is intended exclusively for authorized [Wingify / VWO](https://vwo.com) employees. It provides privileged access to account impersonation and internal APIs. Do not install or use this extension unless you are an authorized VWO team member. Unauthorized use may violate VWO's terms of service and applicable laws.
+
 A Chrome extension (Manifest V3) for VWO internal use. Lets you switch into customer accounts, monitor impersonation status, and debug account details — across both `app.vwo.com` and testapp environments.
 
 ---

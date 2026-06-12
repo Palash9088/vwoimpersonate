@@ -784,6 +784,9 @@ function openModal() {
     document.body.style.overflow = 'hidden';
   }
 
+  // Read clipboard once on open so account ID auto-fills if already copied
+  if (typeof readClipboardOnce === 'function') readClipboardOnce();
+
   // Update account details but ensure impersonation UI is NOT updated
   // Skip updating UI and use a separate fetch to get data for the modal only
   fetch('/login')
@@ -1358,39 +1361,20 @@ function initializeModal() {
     }
   }
 
-  // Function to check clipboard
-  async function checkClipboard() {
+  // Read clipboard once when the modal opens (no background polling)
+  async function readClipboardOnce() {
     try {
-      // Only try to read clipboard if we have permission
       const result = await navigator.permissions.query({ name: 'clipboard-read' });
-      if (result.state === 'granted' || result.state === 'prompt') {
+      if (result.state === 'granted') {
         const clipText = await navigator.clipboard.readText();
-        if (clipText) {
-          handleAccountIdPaste(clipText);
-        }
+        if (clipText) handleAccountIdPaste(clipText);
       }
     } catch (err) {
-      // Silently handle the error - clipboard API might not be available
-      return;
+      // Clipboard API unavailable — silently ignore
     }
   }
 
-  // Set up an interval to check clipboard every second
-  const clipboardInterval = setInterval(checkClipboard, 1000);
-
-  // Clear interval when modal is closed
-  document.querySelector('.vwo-close').addEventListener('click', () => {
-    clearInterval(clipboardInterval);
-  });
-
-  document.addEventListener('keydown', function (event) {
-    if (event.key === 'Escape') {
-      clearInterval(clipboardInterval);
-    }
-  });
-
-  // Check clipboard immediately when modal opens
-  checkClipboard();
+  readClipboardOnce();
 
   // Handle paste event
   accountIdInput.addEventListener('paste', (e) => {
@@ -1616,11 +1600,23 @@ function performSSOLogin(email, impersonateLoader) {
     .then(response => response.json())
     .then(data => {
       if (data && data.url) {
-        // Redirect to the URL received in the response
+        // Validate redirect stays on *.vwo.com before following
+        try {
+          const redirectUrl = new URL(data.url);
+          if (!redirectUrl.hostname.endsWith('.vwo.com')) {
+            console.error('SSO redirect blocked — unexpected host:', redirectUrl.hostname);
+            if (impersonateLoader) impersonateLoader.hideLoader();
+            return;
+          }
+        } catch (e) {
+          console.error('SSO redirect blocked — invalid URL:', data.url);
+          if (impersonateLoader) impersonateLoader.hideLoader();
+          return;
+        }
         window.location.href = data.url;
       } else {
         console.error('SSO login failed: No redirect URL received');
-        if (impersonateLoader) impersonateLoader.hideLoader(); // Hide loader if there's an error
+        if (impersonateLoader) impersonateLoader.hideLoader();
       }
     })
     .catch(error => {
