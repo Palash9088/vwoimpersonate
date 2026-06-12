@@ -777,6 +777,26 @@ styleTag.textContent = floatingButtonCSS;
 document.head.appendChild(styleTag);
 
 // Function to open the modal
+// Read clipboard once and auto-fill account ID input if a valid ID is found.
+// Called every time the modal opens — no background polling.
+async function readClipboardOnce() {
+  const input = document.getElementById('accountIdInput');
+  if (!input) return;
+  try {
+    const permission = await navigator.permissions.query({ name: 'clipboard-read' });
+    if (permission.state === 'granted') {
+      const text = await navigator.clipboard.readText();
+      if (text) {
+        const clean = text.replace(/,/g, '').replace(/\s/g, '');
+        const match = clean.match(/\d{6,9}/);
+        if (match) input.value = match[0];
+      }
+    }
+  } catch (err) {
+    // Clipboard API unavailable — silently ignore
+  }
+}
+
 function openModal() {
   const modal = document.getElementById('vwoImpersonateDebugger');
   if (modal) {
@@ -784,8 +804,7 @@ function openModal() {
     document.body.style.overflow = 'hidden';
   }
 
-  // Read clipboard once on open so account ID auto-fills if already copied
-  if (typeof readClipboardOnce === 'function') readClipboardOnce();
+  readClipboardOnce();
 
   // Update account details but ensure impersonation UI is NOT updated
   // Skip updating UI and use a separate fetch to get data for the modal only
@@ -1361,19 +1380,7 @@ function initializeModal() {
     }
   }
 
-  // Read clipboard once when the modal opens (no background polling)
-  async function readClipboardOnce() {
-    try {
-      const result = await navigator.permissions.query({ name: 'clipboard-read' });
-      if (result.state === 'granted') {
-        const clipText = await navigator.clipboard.readText();
-        if (clipText) handleAccountIdPaste(clipText);
-      }
-    } catch (err) {
-      // Clipboard API unavailable — silently ignore
-    }
-  }
-
+  // Trigger clipboard read now that modal is open
   readClipboardOnce();
 
   // Handle paste event
