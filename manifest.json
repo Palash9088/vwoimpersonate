@@ -6,7 +6,9 @@
     "permissions": ["storage", "declarativeContent", "activeTab", "scripting", "tabs"],
     "host_permissions": [
         "https://app.vwo.com/*",
-        "https://*.vwo.com/*"
+        "https://*.vwo.com/*",
+        "https://app.wingify.com/*",
+        "https://*.wingify.com/*"
     ],
     "action": {
       "default_popup": "popup.html",
@@ -16,8 +18,8 @@
     },
     "content_scripts": [
       {
-        "matches": ["*://app.vwo.com/*", "*://*.vwo.com/*"],
-        "exclude_matches": ["*://app.vwo.com/access*"],
+        "matches": ["*://app.vwo.com/*", "*://*.vwo.com/*", "*://app.wingify.com/*", "*://*.wingify.com/*"],
+        "exclude_matches": ["*://app.vwo.com/access*", "*://app.wingify.com/access*"],
         "js": ["content.js"],
         "run_at": "document_end"
       }

@@ -1,5 +1,5 @@
-// Returns the base URL of the current VWO domain (works on app, testapp, or any *.vwo.com)
-// e.g. https://vwotestapp12.vwo.com/ or https://app.vwo.com/
+// Returns the base URL of the current domain (works on *.vwo.com and *.wingify.com)
+// e.g. https://app.wingify.com/ or https://vwotestapp12.vwo.com/
 function getVwoBaseUrl() {
   const href = window.location.href;
   const dotComIdx = href.indexOf('.com/');
@@ -7,6 +7,14 @@ function getVwoBaseUrl() {
     return href.substring(0, dotComIdx + 5); // include ".com/"
   }
   return 'https://app.vwo.com/'; // fallback
+}
+
+// Returns the auth base URL for logout/SSO — always uses the main app domain,
+// not a testapp subdomain.
+function getAuthBaseUrl() {
+  const host = window.location.hostname;
+  if (host.endsWith('wingify.com')) return 'https://app.wingify.com/';
+  return 'https://app.vwo.com/';
 }
 
 let VWoImpLoginData = {
@@ -110,7 +118,7 @@ let VWoImpLoginData = {
       document.body.appendChild(logoutIframe);
 
       const xhr = new XMLHttpRequest();
-      xhr.open('GET', 'https://app.vwo.com/logout', true);
+      xhr.open('GET', getAuthBaseUrl() + 'logout', true);
       xhr.onreadystatechange = function () {
         if (xhr.readyState === 4) {
           // Logout complete, proceed with SSO login
@@ -1583,7 +1591,7 @@ function updateImpersonateButtonsVisibility() {
 
 // Function to perform SSO login
 function performSSOLogin(email, impersonateLoader) {
-  fetch("https://app.vwo.com/login/sso", {
+  fetch(getAuthBaseUrl() + "login/sso", {
     "headers": {
       "accept": "*/*",
       "accept-language": "en-US,en;q=0.9,hi;q=0.8,ja;q=0.7",
@@ -1597,7 +1605,7 @@ function performSSOLogin(email, impersonateLoader) {
       "sec-fetch-mode": "cors",
       "sec-fetch-site": "same-origin"
     },
-    "referrer": "https://app.vwo.com/",
+    "referrer": getAuthBaseUrl(),
     "referrerPolicy": "strict-origin-when-cross-origin",
     "body": JSON.stringify({ username: email }),
     "method": "POST",
@@ -1610,7 +1618,8 @@ function performSSOLogin(email, impersonateLoader) {
         // Validate redirect stays on *.vwo.com before following
         try {
           const redirectUrl = new URL(data.url);
-          if (!redirectUrl.hostname.endsWith('.vwo.com')) {
+          const allowed = redirectUrl.hostname.endsWith('.vwo.com') || redirectUrl.hostname.endsWith('.wingify.com');
+          if (!allowed) {
             console.error('SSO redirect blocked — unexpected host:', redirectUrl.hostname);
             if (impersonateLoader) impersonateLoader.hideLoader();
             return;
