@@ -637,9 +637,72 @@ const floatingButtonHTML = `
 
 document.body.insertAdjacentHTML('beforeend', floatingButtonHTML);
 
-// document.getElementById('floatingImpersonatedDisplayBarExitButton').addEventListener('click', function () {
-//   VWoImpLoginData.exitImpersonate();
-// });
+// Vertical drag for the side dock
+(function initDockDrag() {
+  const container = document.getElementById('floatingButtonContainer');
+  const handle    = document.getElementById('vwoImpTabHandle');
+
+  // Restore saved position
+  safeStorageAccess(() => {
+    chrome.storage.local.get('vwoDockTopPct', function (r) {
+      if (r.vwoDockTopPct !== undefined) {
+        container.style.top = r.vwoDockTopPct + '%';
+      }
+    });
+  });
+
+  let startY = 0;
+  let startTop = 0;
+  let dragged = false;
+
+  handle.addEventListener('mousedown', function (e) {
+    // Only drag on left-button, ignore if a click on the panel is intended
+    if (e.button !== 0) return;
+    startY   = e.clientY;
+    startTop = container.getBoundingClientRect().top;
+    dragged  = false;
+
+    container.classList.add('vwo-dragging');
+    handle.classList.add('vwo-grabbing');
+
+    function onMouseMove(e) {
+      const delta = e.clientY - startY;
+      if (Math.abs(delta) > 3) dragged = true;
+      const newTop = Math.min(
+        window.innerHeight - container.offsetHeight,
+        Math.max(0, startTop + delta)
+      );
+      container.style.top = newTop + 'px';
+    }
+
+    function onMouseUp() {
+      container.classList.remove('vwo-dragging');
+      handle.classList.remove('vwo-grabbing');
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup',   onMouseUp);
+
+      if (dragged) {
+        // Convert px position to % so it survives viewport resize
+        const topPct = (container.getBoundingClientRect().top / window.innerHeight) * 100;
+        container.style.top = topPct + '%';
+        safeStorageAccess(() => {
+          chrome.storage.local.set({ vwoDockTopPct: topPct });
+        });
+      }
+    }
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup',   onMouseUp);
+  });
+
+  // Suppress click after a drag so the panel doesn't toggle
+  handle.addEventListener('click', function (e) {
+    if (dragged) {
+      e.stopImmediatePropagation();
+      dragged = false;
+    }
+  }, true);
+})();
 
 // Inject CSS for the side hover dock
 const floatingButtonCSS = `
@@ -647,9 +710,21 @@ const floatingButtonCSS = `
   position: fixed;
   right: 0;
   top: 50%;
-  transform: translateY(-50%);
   z-index: 2147483646;
   pointer-events: none;
+  transition: top 0.1s ease;
+}
+
+#floatingButtonContainer.vwo-dragging {
+  transition: none;
+}
+
+#vwoImpTabHandle {
+  cursor: grab;
+}
+
+#vwoImpTabHandle.vwo-grabbing {
+  cursor: grabbing;
 }
 
 #vwoImpSideDock {
@@ -668,7 +743,6 @@ const floatingButtonCSS = `
   background: #4429A2;
   color: #fff;
   padding: 14px 7px;
-  cursor: pointer;
   font-size: 11px;
   font-weight: bold;
   letter-spacing: 0.5px;
