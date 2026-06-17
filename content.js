@@ -112,20 +112,16 @@ let VWoImpLoginData = {
         return;
       }
 
-      // Create logout iframe
-      const logoutIframe = document.createElement('iframe');
-      logoutIframe.style.display = 'none';
-      document.body.appendChild(logoutIframe);
-
-      const xhr = new XMLHttpRequest();
-      xhr.open('GET', getAuthBaseUrl() + 'logout', true);
-      xhr.onreadystatechange = function () {
-        if (xhr.readyState === 4) {
-          // Logout complete, proceed with SSO login
+      // Logout first, then SSO regardless of outcome
+      fetch(getAuthBaseUrl() + 'logout', {
+        method: 'GET',
+        credentials: 'include',
+        redirect: 'manual'   // don't follow cross-origin redirects
+      })
+        .catch(() => {})     // ignore network/CORS errors — session may still be cleared
+        .finally(() => {
           performSSOLogin(email, impersonateLoader);
-        }
-      };
-      xhr.send();
+        });
     });
   },
   // Add a function to display error messages
@@ -1665,6 +1661,15 @@ function updateImpersonateButtonsVisibility() {
 
 // Function to perform SSO login
 function performSSOLogin(email, impersonateLoader) {
+  // Safety net — hide loader after 15s no matter what
+  const loaderTimeout = setTimeout(() => {
+    if (impersonateLoader) impersonateLoader.hideLoader();
+    VWoImpLoginData.displayErrorMessage(
+      'Exit Impersonation Failed',
+      'SSO login timed out. Please try again or log out manually.'
+    );
+  }, 15000);
+
   fetch(getAuthBaseUrl() + "login/sso", {
     "headers": {
       "accept": "*/*",
@@ -1688,14 +1693,15 @@ function performSSOLogin(email, impersonateLoader) {
   })
     .then(response => response.json())
     .then(data => {
+      clearTimeout(loaderTimeout);
       if (data && data.url) {
-        // Validate redirect stays on *.vwo.com before following
         try {
           const redirectUrl = new URL(data.url);
           const allowed = redirectUrl.hostname.endsWith('.vwo.com') || redirectUrl.hostname.endsWith('.wingify.com');
           if (!allowed) {
             console.error('SSO redirect blocked — unexpected host:', redirectUrl.hostname);
             if (impersonateLoader) impersonateLoader.hideLoader();
+            VWoImpLoginData.displayErrorMessage('Exit Impersonation Failed', 'SSO returned an unexpected redirect URL.');
             return;
           }
         } catch (e) {
@@ -1705,13 +1711,15 @@ function performSSOLogin(email, impersonateLoader) {
         }
         window.location.href = data.url;
       } else {
-        console.error('SSO login failed: No redirect URL received');
         if (impersonateLoader) impersonateLoader.hideLoader();
+        VWoImpLoginData.displayErrorMessage('Exit Impersonation Failed', 'SSO did not return a redirect URL. Please try logging out manually.');
       }
     })
     .catch(error => {
+      clearTimeout(loaderTimeout);
       console.error('Error during SSO login:', error);
-      if (impersonateLoader) impersonateLoader.hideLoader(); // Hide loader if there's an error
+      if (impersonateLoader) impersonateLoader.hideLoader();
+      VWoImpLoginData.displayErrorMessage('Exit Impersonation Failed', 'SSO request failed: ' + error.message);
     });
 }
 
