@@ -269,50 +269,109 @@ let VWoImpLoginData = {
         console.error('Error fetching account details:', error);
       });
   },
-  // Function to convert current date and time with timezone to UTC date and time
   checkFeature: function () {
+    const searchInput   = document.getElementById('searchInput');
+    const dropdown      = document.getElementById('vwoFeatureDropdown');
+    const list          = document.getElementById('vwoFeatureList');
+    const selectedDiv   = document.getElementById('selected-value');
+    const wrap          = document.getElementById('vwoFeatureWrap');
 
-    const searchInput = document.getElementById('searchInput');
-    const dropdownSelect = document.getElementById('dropdownSelect');
-    const dropdownContent = document.querySelector('.vwo-dropdown-panel');
-    const selectedValueDiv = document.getElementById('selected-value');
+    if (!searchInput || !dropdown || !list) return;
 
-    // Function to filter data based on search input
-    function filterData() {
-      const searchTerm = searchInput.value.toLowerCase();
-      const filteredData = Object.keys(VWoImpLoginData.featureData).filter(key => key.toLowerCase().includes(searchTerm));
-      updateDropdown(filteredData);
+    // Guard against duplicate initialisation
+    if (searchInput.dataset.vwoInited) {
+      // Just refresh the list with new data
+      renderList(searchInput.value);
+      return;
     }
+    searchInput.dataset.vwoInited = '1';
 
-    // Function to update dropdown with filtered data
-    function updateDropdown(filteredData) {
-      dropdownSelect.innerHTML = '';
-      filteredData.forEach(key => {
-        const option = document.createElement('option');
-        option.value = key;
-        option.textContent = key;
-        dropdownSelect.appendChild(option);
+    let activeIdx = -1;
+
+    function renderList(term) {
+      const keys = Object.keys(VWoImpLoginData.featureData)
+        .filter(k => k.toLowerCase().includes((term || '').toLowerCase()));
+      list.innerHTML = '';
+      activeIdx = -1;
+
+      if (!keys.length) {
+        list.innerHTML = '<li class="vwo-ff-empty">No flags found</li>';
+        dropdown.classList.add('show');
+        return;
+      }
+
+      keys.forEach((key, i) => {
+        const val = VWoImpLoginData.featureData[key];
+        const li  = document.createElement('li');
+        li.className   = 'vwo-ff-item';
+        li.dataset.key = key;
+        li.setAttribute('role', 'option');
+
+        const name  = document.createElement('span');
+        name.className   = 'vwo-ff-name';
+        name.textContent = key;
+
+        const badge = document.createElement('span');
+        badge.className   = 'vwo-ff-badge ' + (val ? 'vwo-ff-on' : 'vwo-ff-off');
+        badge.textContent = val ? 'true' : 'false';
+
+        li.appendChild(name);
+        li.appendChild(badge);
+
+        li.addEventListener('mousedown', (e) => {
+          e.preventDefault(); // keep focus on input
+          selectItem(key);
+        });
+        li.addEventListener('mousemove', () => setActive(i));
+
+        list.appendChild(li);
       });
-      dropdownContent.classList.add('show');
+
+      dropdown.classList.add('show');
     }
 
-    // Event listener for search input
-    searchInput.addEventListener('input', filterData);
+    function setActive(idx) {
+      const items = list.querySelectorAll('.vwo-ff-item');
+      items.forEach(el => el.classList.remove('vwo-ff-active'));
+      activeIdx = idx;
+      if (items[idx]) {
+        items[idx].classList.add('vwo-ff-active');
+        items[idx].scrollIntoView({ block: 'nearest' });
+      }
+    }
 
-    // Event listener for dropdown select
-    dropdownSelect.addEventListener('change', function () {
-      const selectedValue = this.value;
-      searchInput.value = selectedValue;
-      dropdownContent.classList.remove('show');
-      // Show the selected value in the div
-      selectedValueDiv.textContent = VWoImpLoginData.featureData[selectedValue];
+    function selectItem(key) {
+      searchInput.value = key;
+      const val = VWoImpLoginData.featureData[key];
+      selectedDiv.innerHTML =
+        `<span class="vwo-ff-result-key">${key}</span>` +
+        `<span class="vwo-ff-badge ${val ? 'vwo-ff-on' : 'vwo-ff-off'}">${val ? 'true' : 'false'}</span>`;
+      dropdown.classList.remove('show');
+      activeIdx = -1;
+    }
+
+    searchInput.addEventListener('input', () => renderList(searchInput.value));
+
+    searchInput.addEventListener('focus', () => renderList(searchInput.value));
+
+    searchInput.addEventListener('keydown', (e) => {
+      const items = list.querySelectorAll('.vwo-ff-item');
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setActive(Math.min(activeIdx + 1, items.length - 1));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setActive(Math.max(activeIdx - 1, 0));
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (items[activeIdx]) selectItem(items[activeIdx].dataset.key);
+      } else if (e.key === 'Escape') {
+        dropdown.classList.remove('show');
+      }
     });
 
-    // Event listener to close dropdown when clicking outside
-    document.addEventListener('click', function (event) {
-      if (!event.target.matches('.dropdown')) {
-        dropdownContent.classList.remove('show');
-      }
+    document.addEventListener('mousedown', (e) => {
+      if (!wrap.contains(e.target)) dropdown.classList.remove('show');
     });
   }
 }
@@ -943,9 +1002,11 @@ function initializeModal() {
               <div class="vwo-info-row"><span class="vwo-label">Timezone</span><span id="timezone" class="vwo-value">—</span></div>
               <div class="vwo-info-row"><span class="vwo-label">UTC Time</span><span id="utcTime" class="vwo-value">—</span></div>
               <div class="vwo-panel-title" style="margin-top:16px">Feature Flags</div>
-              <div class="vwo-search-wrap">
-                <input type="text" id="searchInput" placeholder="🔍  Search features…" class="vwo-input">
-                <div class="vwo-dropdown-panel"><select id="dropdownSelect" size="6"></select></div>
+              <div class="vwo-search-wrap" id="vwoFeatureWrap">
+                <input type="text" id="searchInput" placeholder="🔍  Search features…" class="vwo-input" autocomplete="off">
+                <div class="vwo-dropdown-panel" id="vwoFeatureDropdown">
+                  <ul id="vwoFeatureList" role="listbox"></ul>
+                </div>
               </div>
               <div id="selected-value" class="vwo-selected-value"></div>
             </div>
@@ -1249,19 +1310,60 @@ function initializeModal() {
       z-index: 10;
     }
     .vwo-dropdown-panel.show { display: block; }
-    #dropdownSelect {
-      width: 100%;
-      border: none;
-      background: transparent;
-      padding: 6px 8px;
-      font-size: 13px;
+    #vwoFeatureList {
+      list-style: none;
+      margin: 0;
+      padding: 4px 0;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    .vwo-ff-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 7px 12px;
+      cursor: pointer;
+      font-size: 12px;
+      gap: 8px;
+    }
+    .vwo-ff-item:hover,
+    .vwo-ff-item.vwo-ff-active {
+      background: #F6F5FC;
+    }
+    .vwo-ff-name {
+      flex: 1;
+      color: #333;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .vwo-ff-badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 10px;
+      flex-shrink: 0;
+      letter-spacing: 0.3px;
+    }
+    .vwo-ff-on  { background: #e6f4ea; color: #2e7d32; }
+    .vwo-ff-off { background: #fce8e6; color: #c62828; }
+    .vwo-ff-empty {
+      padding: 10px 12px;
+      font-size: 12px;
+      color: #999;
+      text-align: center;
     }
     .vwo-selected-value {
       margin-top: 8px;
       font-size: 13px;
+      min-height: 22px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .vwo-ff-result-key {
       color: #333;
       font-weight: 600;
-      min-height: 20px;
     }
 
     /* Error */
