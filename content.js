@@ -112,6 +112,30 @@ let VWoImpLoginData = {
         return;
       }
 
+      const authBase = getAuthBaseUrl();
+      const onAuthDomain = getVwoBaseUrl() === authBase;
+
+      // On testapp/subdomains, delegate to background — cross-origin SSO won't set cookies from content script
+      if (!onAuthDomain && isExtensionContextValid()) {
+        chrome.runtime.sendMessage({
+          action: 'exitImpersonate',
+          email,
+          accountId,
+          authBaseUrl: authBase
+        }, function (response) {
+          if (response && response.success && response.redirectUrl) {
+            window.location.href = response.redirectUrl;
+          } else {
+            impersonateLoader.hideLoader();
+            VWoImpLoginData.displayErrorMessage(
+              'Exit Impersonation Failed',
+              (response && response.error) || 'Could not complete SSO. Please try again.'
+            );
+          }
+        });
+        return;
+      }
+
       // Logout first, then SSO regardless of outcome
       fetch(getAuthBaseUrl() + 'logout', {
         method: 'GET',
@@ -120,7 +144,7 @@ let VWoImpLoginData = {
       })
         .catch(() => {})     // ignore network/CORS errors — session may still be cleared
         .finally(() => {
-          performSSOLogin(email, impersonateLoader);
+          performSSOLogin(email, accountId, impersonateLoader);
         });
     });
   },
@@ -991,6 +1015,7 @@ function initializeModal() {
         <button class="vwo-tablink active" data-tab="debugger">Debugger</button>
         <button class="vwo-tablink" data-tab="login-response">/login Response</button>
         <button class="vwo-tablink" data-tab="converter">Timezone Converter</button>
+        <button class="vwo-tablink" data-tab="grant-access">Grant Access</button>
       </div>
       <div class="vwo-modal-content">
 
@@ -1096,6 +1121,57 @@ function initializeModal() {
               <div id="utcToTime" class="vwo-result-row">UTC To: <strong>—</strong></div>
             </div>
             <div id="luxonStatus" style="display:none;color:#f44336;text-align:center;margin-top:8px">Error during conversion. Please try again.</div>
+          </div>
+        </div>
+
+        <!-- Grant Access Tab -->
+        <div id="grant-access-tab" class="vwo-tab-content">
+          <div class="vwo-grant-panel">
+            <div class="vwo-grant-note">
+              <strong>Step 1:</strong> Open the VWO admin panel and sign in (GCP IAP).
+              Keep that tab open — the extension reads <code>vwotoken</code> from it.
+              <div class="vwo-grant-actions">
+                <button type="button" id="vwoOpenAdminLogin" class="vwo-btn vwo-btn-blue vwo-btn-sm">Open Admin Panel</button>
+                <button type="button" id="vwoRefreshGrantSession" class="vwo-btn vwo-btn-outline vwo-btn-sm">Refresh Session</button>
+              </div>
+            </div>
+            <div id="vwoGrantSessionStatus" class="vwo-grant-session">Checking admin session…</div>
+            <details class="vwo-grant-advanced">
+              <summary>Advanced: paste vwotoken manually</summary>
+              <div class="vwo-form" style="margin-top:8px">
+                <label class="vwo-label" for="grantVwoToken">vwotoken</label>
+                <input type="text" id="grantVwoToken" class="vwo-input" placeholder="32-char token from admin page source">
+              </div>
+            </details>
+            <form id="grantAccessForm" class="vwo-form vwo-grant-form">
+              <div class="vwo-form">
+                <label class="vwo-label" for="grantImpersonatorEmail">Impersonator Email ID</label>
+                <input type="email" id="grantImpersonatorEmail" class="vwo-input" placeholder="you@wingify.com" required>
+              </div>
+              <div class="vwo-form">
+                <label class="vwo-label" for="grantAccountId">Account ID</label>
+                <input type="text" id="grantAccountId" class="vwo-input" placeholder="Target account ID" maxlength="9" required>
+              </div>
+              <div class="vwo-form">
+                <label class="vwo-label" for="grantUserId">User ID <span class="vwo-optional">(optional)</span></label>
+                <input type="text" id="grantUserId" class="vwo-input" placeholder="Leave blank if unknown">
+              </div>
+              <div class="vwo-form">
+                <label class="vwo-label" for="grantPermissionId">Permission ID</label>
+                <input type="text" id="grantPermissionId" class="vwo-input" value="0" placeholder="0 = Browse">
+              </div>
+              <div class="vwo-form">
+                <label class="vwo-label" for="grantValidity">Validity (days)</label>
+                <input type="number" id="grantValidity" class="vwo-input" value="14" min="1" max="365" required>
+              </div>
+              <div class="vwo-form">
+                <label class="vwo-label" for="grantReason">Reason</label>
+                <input type="text" id="grantReason" class="vwo-input" placeholder="e.g. QF-20123" required>
+              </div>
+              <button type="submit" id="grantAccessBtn" class="vwo-btn vwo-btn-green" style="width:100%">Grant Permission</button>
+            </form>
+            <p id="grantAccessError" class="vwo-error-msg"></p>
+            <pre id="grantAccessResult" class="vwo-json-viewer vwo-grant-result" style="display:none"></pre>
           </div>
         </div>
 
@@ -1433,6 +1509,37 @@ function initializeModal() {
       flex-shrink: 0;
     }
     .vwo-modal-credit strong { color: #4429A2; }
+
+    /* Grant Access tab */
+    .vwo-grant-panel { padding: 4px 0; }
+    .vwo-grant-note {
+      background: #fff8e1;
+      border-left: 4px solid #ffc107;
+      padding: 10px 12px;
+      border-radius: 4px;
+      font-size: 13px;
+      color: #5d4037;
+      margin-bottom: 14px;
+      line-height: 1.45;
+    }
+    .vwo-grant-note code { background: rgba(0,0,0,0.06); padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+    .vwo-grant-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+    .vwo-btn-sm { padding: 6px 12px !important; font-size: 12px !important; width: auto !important; }
+    .vwo-grant-advanced { margin-bottom: 12px; font-size: 12px; color: #666; }
+    .vwo-grant-advanced summary { cursor: pointer; color: #5130C1; font-weight: 600; }
+    .vwo-grant-session {
+      font-size: 12px;
+      margin-bottom: 14px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      background: #f6f6f8;
+      color: #555;
+    }
+    .vwo-grant-session.ok { background: #e8f5e9; color: #2e7d32; }
+    .vwo-grant-session.warn { background: #fff3e0; color: #e65100; }
+    .vwo-grant-form { margin-top: 4px; }
+    .vwo-optional { color: #999; font-weight: 400; font-size: 11px; }
+    .vwo-grant-result { margin-top: 12px; max-height: 180px; }
   `;
 
   const modalStyleTag = document.createElement('style');
@@ -1459,8 +1566,76 @@ function initializeModal() {
       const tabId = this.dataset.tab + '-tab';
       document.getElementById(tabId).classList.add('active');
       if (this.dataset.tab === 'login-response') fetchAndShowLoginResponse();
+      if (this.dataset.tab === 'grant-access') initGrantAccessTab();
     });
   });
+
+  function checkGrantSession() {
+    const statusEl = document.getElementById('vwoGrantSessionStatus');
+    const manualToken = document.getElementById('grantVwoToken').value.trim();
+
+    statusEl.textContent = 'Checking admin session…';
+    statusEl.className = 'vwo-grant-session';
+
+    chrome.runtime.sendMessage({
+      action: 'checkAdminSession',
+      manualToken: manualToken || undefined
+    }, function (response) {
+      if (chrome.runtime.lastError) {
+        statusEl.textContent = 'Extension error: ' + chrome.runtime.lastError.message;
+        statusEl.className = 'vwo-grant-session warn';
+        return;
+      }
+
+      if (response && response.success) {
+        statusEl.textContent = 'Admin session active (token: ' + response.tokenPreview + ')';
+        statusEl.className = 'vwo-grant-session ok';
+      } else {
+        statusEl.textContent = (response && response.error) || 'Admin session not found. Open admin panel in a tab and sign in.';
+        statusEl.className = 'vwo-grant-session warn';
+      }
+    });
+  }
+
+  function initGrantAccessTab(preserveResult) {
+    const errorEl = document.getElementById('grantAccessError');
+    const resultEl = document.getElementById('grantAccessResult');
+    if (!preserveResult) {
+      errorEl.textContent = '';
+      resultEl.style.display = 'none';
+    }
+
+    chrome.storage.local.get(['originalEmail', 'currentAccountId'], function (result) {
+      const emailInput = document.getElementById('grantImpersonatorEmail');
+      const accountInput = document.getElementById('grantAccountId');
+
+      if (result.originalEmail && !emailInput.value) {
+        emailInput.value = result.originalEmail;
+      }
+
+      if (result.currentAccountId && !accountInput.value) {
+        accountInput.value = result.currentAccountId;
+      }
+    });
+
+    fetch('/login')
+      .then(r => r.json())
+      .then(data => {
+        const accountInput = document.getElementById('grantAccountId');
+        if (data.accountId && !accountInput.value) {
+          accountInput.value = data.accountId;
+        }
+      })
+      .catch(() => {});
+
+    checkGrantSession();
+  }
+
+  document.getElementById('vwoOpenAdminLogin').addEventListener('click', function () {
+    chrome.runtime.sendMessage({ action: 'openAdminLogin' });
+  });
+
+  document.getElementById('vwoRefreshGrantSession').addEventListener('click', checkGrantSession);
 
   // /login Response tab logic
   function fetchAndShowLoginResponse() {
@@ -1611,6 +1786,81 @@ function initializeModal() {
 
   // Add converter functionality
   document.getElementById('convertBtn').addEventListener('click', convertToUTC);
+
+  document.getElementById('grantAccessForm').addEventListener('submit', function (event) {
+    event.preventDefault();
+
+    const errorEl = document.getElementById('grantAccessError');
+    const resultEl = document.getElementById('grantAccessResult');
+    const submitBtn = document.getElementById('grantAccessBtn');
+    errorEl.textContent = '';
+    resultEl.style.display = 'none';
+
+    const impersonatorEmailId = document.getElementById('grantImpersonatorEmail').value.trim();
+    const accountId = document.getElementById('grantAccountId').value.trim();
+    const userId = document.getElementById('grantUserId').value.trim();
+    const permissionId = document.getElementById('grantPermissionId').value.trim() || '0';
+    const validity = document.getElementById('grantValidity').value.trim();
+    const reason = document.getElementById('grantReason').value.trim();
+    const vwoToken = document.getElementById('grantVwoToken').value.trim();
+
+    if (!impersonatorEmailId || !accountId || !validity || !reason) {
+      errorEl.textContent = 'Please fill in all required fields.';
+      return;
+    }
+
+    if (!/^\d{6,9}$/.test(accountId)) {
+      errorEl.textContent = 'Account ID must be 6–9 digits.';
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Granting…';
+
+    chrome.runtime.sendMessage({
+      action: 'grantImpersonationPermission',
+      data: {
+        impersonatorEmailId,
+        accountId,
+        userId,
+        permissionId,
+        validity,
+        reason,
+        vwoToken: vwoToken || undefined
+      }
+    }, function (response) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Grant Permission';
+
+      if (chrome.runtime.lastError) {
+        errorEl.textContent = 'Extension error: ' + chrome.runtime.lastError.message;
+        return;
+      }
+
+      if (!response || !response.success) {
+        errorEl.textContent = (response && response.error) || 'Failed to grant permission.';
+        initGrantAccessTab();
+        return;
+      }
+
+      const { result } = response;
+      resultEl.style.display = 'block';
+
+      if (result.parsed) {
+        resultEl.textContent = JSON.stringify(result.parsed, null, 2);
+        if (result.parsed.success === false || result.parsed.error) {
+          errorEl.textContent = result.parsed.error || result.parsed.message || 'Grant request returned an error.';
+        }
+      } else {
+        resultEl.textContent = result.text || '(empty response)';
+        if (!result.ok) {
+          errorEl.textContent = 'Request failed with HTTP ' + result.status;
+        }
+      }
+
+      initGrantAccessTab(true);
+    });
+  });
 }
 
 function convertToUTC() {
@@ -1762,7 +2012,16 @@ function updateImpersonateButtonsVisibility() {
 }
 
 // Function to perform SSO login
-function performSSOLogin(email, impersonateLoader) {
+function isAllowedRedirect(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname.endsWith('.vwo.com') || parsed.hostname.endsWith('.wingify.com');
+  } catch (e) {
+    return false;
+  }
+}
+
+function performSSOLogin(email, accountId, impersonateLoader) {
   // Safety net — hide loader after 15s no matter what
   const loaderTimeout = setTimeout(() => {
     if (impersonateLoader) impersonateLoader.hideLoader();
@@ -1772,50 +2031,50 @@ function performSSOLogin(email, impersonateLoader) {
     );
   }, 15000);
 
-  fetch(getAuthBaseUrl() + "login/sso", {
-    "headers": {
-      "accept": "*/*",
-      "accept-language": "en-US,en;q=0.9,hi;q=0.8,ja;q=0.7",
-      "cache-control": "no-cache",
-      "content-type": "text/plain;charset=UTF-8",
-      "pragma": "no-cache",
-      "sec-ch-ua": "\"Not)A;Brand\";v=\"99\", \"Google Chrome\";v=\"127\", \"Chromium\";v=\"127\"",
-      "sec-ch-ua-mobile": "?0",
-      "sec-ch-ua-platform": "\"macOS\"",
-      "sec-fetch-dest": "empty",
-      "sec-fetch-mode": "cors",
-      "sec-fetch-site": "same-origin"
+  const authBase = getAuthBaseUrl();
+
+  fetch(authBase + 'login/sso', {
+    method: 'POST',
+    headers: {
+      'Accept': 'application/json, */*',
+      'Content-Type': 'application/json'
     },
-    "referrer": getAuthBaseUrl(),
-    "referrerPolicy": "strict-origin-when-cross-origin",
-    "body": JSON.stringify({ username: email }),
-    "method": "POST",
-    "mode": "cors",
-    "credentials": "include"
+    body: JSON.stringify({ username: email }),
+    credentials: 'include'
   })
-    .then(response => response.json())
-    .then(data => {
-      clearTimeout(loaderTimeout);
-      if (data && data.url) {
+    .then(async (response) => {
+      let data = {};
+      const text = await response.text();
+      if (text) {
         try {
-          const redirectUrl = new URL(data.url);
-          const allowed = redirectUrl.hostname.endsWith('.vwo.com') || redirectUrl.hostname.endsWith('.wingify.com');
-          if (!allowed) {
-            console.error('SSO redirect blocked — unexpected host:', redirectUrl.hostname);
-            if (impersonateLoader) impersonateLoader.hideLoader();
-            VWoImpLoginData.displayErrorMessage('Exit Impersonation Failed', 'SSO returned an unexpected redirect URL.');
-            return;
-          }
+          data = JSON.parse(text);
         } catch (e) {
-          console.error('SSO redirect blocked — invalid URL:', data.url);
-          if (impersonateLoader) impersonateLoader.hideLoader();
-          return;
+          console.warn('SSO response was not JSON:', text.slice(0, 200));
         }
-        window.location.href = data.url;
-      } else {
-        if (impersonateLoader) impersonateLoader.hideLoader();
-        VWoImpLoginData.displayErrorMessage('Exit Impersonation Failed', 'SSO did not return a redirect URL. Please try logging out manually.');
       }
+      return { response, data };
+    })
+    .then(({ response, data }) => {
+      clearTimeout(loaderTimeout);
+
+      const redirectUrl = data.url || data.redirectUrl || data.redirect_url;
+      if (redirectUrl && isAllowedRedirect(redirectUrl)) {
+        window.location.href = redirectUrl;
+        return;
+      }
+
+      // SSO often returns no URL — switch back via /access (same as background.js flow)
+      if (response.ok && accountId) {
+        window.location.href = authBase + 'access?accountId=' + encodeURIComponent(accountId);
+        return;
+      }
+
+      if (impersonateLoader) impersonateLoader.hideLoader();
+      const detail = data.message || data.error || ('HTTP ' + response.status);
+      VWoImpLoginData.displayErrorMessage(
+        'Exit Impersonation Failed',
+        'SSO login did not complete. ' + detail + '\nPlease try logging out manually.'
+      );
     })
     .catch(error => {
       clearTimeout(loaderTimeout);
