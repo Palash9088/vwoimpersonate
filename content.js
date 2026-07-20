@@ -696,11 +696,11 @@ function showImpersonateStatus() {
   });
 }
 
-// Inject HTML for the side hover dock
+// Inject HTML for the side dock
 const floatingButtonHTML = `
 <div id="floatingButtonContainer">
   <div id="vwoImpSideDock">
-    <div id="vwoImpTabHandle" title="VWO Impersonate — hover to expand">
+    <div id="vwoImpTabHandle" title="VWO Impersonate — click to expand">
       <span id="vwoImpTabDot"></span>
       <span id="vwoImpTabLabel">VWO</span>
     </div>
@@ -774,16 +774,26 @@ document.body.insertAdjacentHTML('beforeend', floatingButtonHTML);
     document.addEventListener('mouseup',   onMouseUp);
   });
 
-  // Suppress click after a drag so the panel doesn't toggle
+  // Toggle panel on click; suppress toggle after a drag reposition
   handle.addEventListener('click', function (e) {
     if (dragged) {
       e.stopImmediatePropagation();
       dragged = false;
+      return;
     }
+    document.getElementById('vwoImpSideDock').classList.toggle('vwo-open');
   }, true);
+
+  // Close panel when clicking outside the dock
+  document.addEventListener('click', function (e) {
+    const dock = document.getElementById('vwoImpSideDock');
+    if (!dock || !dock.classList.contains('vwo-open')) return;
+    if (dock.contains(e.target)) return;
+    dock.classList.remove('vwo-open');
+  });
 })();
 
-// Inject CSS for the side hover dock
+// Inject CSS for the side dock
 const floatingButtonCSS = `
 #floatingButtonContainer {
   position: fixed;
@@ -863,8 +873,7 @@ const floatingButtonCSS = `
   min-width: 170px;
 }
 
-#vwoImpSideDock:hover #vwoImpPanel,
-#vwoImpSideDock:focus-within #vwoImpPanel {
+#vwoImpSideDock.vwo-open #vwoImpPanel {
   transform: translateX(0);
   opacity: 1;
   pointer-events: auto;
@@ -1127,22 +1136,6 @@ function initializeModal() {
         <!-- Grant Access Tab -->
         <div id="grant-access-tab" class="vwo-tab-content">
           <div class="vwo-grant-panel">
-            <div class="vwo-grant-note">
-              <strong>Step 1:</strong> Open the VWO admin panel and sign in (GCP IAP).
-              Keep that tab open — the extension reads <code>vwotoken</code> from it.
-              <div class="vwo-grant-actions">
-                <button type="button" id="vwoOpenAdminLogin" class="vwo-btn vwo-btn-blue vwo-btn-sm">Open Admin Panel</button>
-                <button type="button" id="vwoRefreshGrantSession" class="vwo-btn vwo-btn-outline vwo-btn-sm">Refresh Session</button>
-              </div>
-            </div>
-            <div id="vwoGrantSessionStatus" class="vwo-grant-session">Checking admin session…</div>
-            <details class="vwo-grant-advanced">
-              <summary>Advanced: paste vwotoken manually</summary>
-              <div class="vwo-form" style="margin-top:8px">
-                <label class="vwo-label" for="grantVwoToken">vwotoken</label>
-                <input type="text" id="grantVwoToken" class="vwo-input" placeholder="32-char token from admin page source">
-              </div>
-            </details>
             <form id="grantAccessForm" class="vwo-form vwo-grant-form">
               <div class="vwo-form">
                 <label class="vwo-label" for="grantImpersonatorEmail">Impersonator Email ID</label>
@@ -1158,15 +1151,9 @@ function initializeModal() {
               </div>
               <div class="vwo-form">
                 <label class="vwo-label" for="grantPermissionId">Permission ID</label>
-                <input type="text" id="grantPermissionId" class="vwo-input" value="0" placeholder="0 = Browse">
-              </div>
-              <div class="vwo-form">
-                <label class="vwo-label" for="grantValidity">Validity (days)</label>
-                <input type="number" id="grantValidity" class="vwo-input" value="14" min="1" max="365" required>
-              </div>
-              <div class="vwo-form">
-                <label class="vwo-label" for="grantReason">Reason</label>
-                <input type="text" id="grantReason" class="vwo-input" placeholder="e.g. QF-20123" required>
+                <select id="grantPermissionId" class="vwo-input" required>
+                  <option value="0">Browse</option>
+                </select>
               </div>
               <button type="submit" id="grantAccessBtn" class="vwo-btn vwo-btn-green" style="width:100%">Grant Permission</button>
             </form>
@@ -1570,33 +1557,6 @@ function initializeModal() {
     });
   });
 
-  function checkGrantSession() {
-    const statusEl = document.getElementById('vwoGrantSessionStatus');
-    const manualToken = document.getElementById('grantVwoToken').value.trim();
-
-    statusEl.textContent = 'Checking admin session…';
-    statusEl.className = 'vwo-grant-session';
-
-    chrome.runtime.sendMessage({
-      action: 'checkAdminSession',
-      manualToken: manualToken || undefined
-    }, function (response) {
-      if (chrome.runtime.lastError) {
-        statusEl.textContent = 'Extension error: ' + chrome.runtime.lastError.message;
-        statusEl.className = 'vwo-grant-session warn';
-        return;
-      }
-
-      if (response && response.success) {
-        statusEl.textContent = 'Admin session active (token: ' + response.tokenPreview + ')';
-        statusEl.className = 'vwo-grant-session ok';
-      } else {
-        statusEl.textContent = (response && response.error) || 'Admin session not found. Open admin panel in a tab and sign in.';
-        statusEl.className = 'vwo-grant-session warn';
-      }
-    });
-  }
-
   function initGrantAccessTab(preserveResult) {
     const errorEl = document.getElementById('grantAccessError');
     const resultEl = document.getElementById('grantAccessResult');
@@ -1627,15 +1587,7 @@ function initializeModal() {
         }
       })
       .catch(() => {});
-
-    checkGrantSession();
   }
-
-  document.getElementById('vwoOpenAdminLogin').addEventListener('click', function () {
-    chrome.runtime.sendMessage({ action: 'openAdminLogin' });
-  });
-
-  document.getElementById('vwoRefreshGrantSession').addEventListener('click', checkGrantSession);
 
   // /login Response tab logic
   function fetchAndShowLoginResponse() {
@@ -1800,12 +1752,13 @@ function initializeModal() {
     const accountId = document.getElementById('grantAccountId').value.trim();
     const userId = document.getElementById('grantUserId').value.trim();
     const permissionId = document.getElementById('grantPermissionId').value.trim() || '0';
-    const validity = document.getElementById('grantValidity').value.trim();
-    const reason = document.getElementById('grantReason').value.trim();
-    const vwoToken = document.getElementById('grantVwoToken').value.trim();
 
-    if (!impersonatorEmailId || !accountId || !validity || !reason) {
-      errorEl.textContent = 'Please fill in all required fields.';
+    // Required by the backend, but intentionally hidden in UI.
+    const validity = '14';
+    const reason = 'QF-20123';
+
+    if (!impersonatorEmailId || !accountId) {
+      errorEl.textContent = 'Please fill in Impersonator Email ID and Account ID.';
       return;
     }
 
@@ -1826,7 +1779,6 @@ function initializeModal() {
         permissionId,
         validity,
         reason,
-        vwoToken: vwoToken || undefined
       }
     }, function (response) {
       submitBtn.disabled = false;

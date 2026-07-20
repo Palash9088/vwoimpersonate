@@ -8,7 +8,8 @@
         "https://app.vwo.com/*",
         "https://*.vwo.com/*",
         "https://app.wingify.com/*",
-        "https://*.wingify.com/*"
+        "https://*.wingify.com/*",
+        "https://v2.visualwebsiteoptimizer.com/*"
     ],
     "action": {
       "default_popup": "popup.html",
@@ -22,6 +23,11 @@
         "exclude_matches": ["*://app.vwo.com/access*", "*://app.wingify.com/access*"],
         "js": ["content.js"],
         "run_at": "document_end"
+      },
+      {
+        "matches": ["*://v2.visualwebsiteoptimizer.com/*"],
+        "js": ["admin-content.js"],
+        "run_at": "document_idle"
       }
     ],
     "background": {
