@@ -46,6 +46,9 @@ cacheVwoToken();
 const observer = new MutationObserver(() => cacheVwoToken());
 observer.observe(document.documentElement, { childList: true, subtree: true });
 
+// Auto-refresh every 15 minutes (same rule as testapp)
+setInterval(() => location.reload(), 15 * 60 * 1000);
+
 chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   if (request.action === 'extractVwoToken') {
     sendResponse({ token: cacheVwoToken() });
