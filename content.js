@@ -1139,7 +1139,7 @@ function initializeModal() {
             <form id="grantAccessForm" class="vwo-form vwo-grant-form">
               <div class="vwo-form">
                 <label class="vwo-label" for="grantImpersonatorEmail">Impersonator Email ID</label>
-                <input type="email" id="grantImpersonatorEmail" class="vwo-input" placeholder="you@wingify.com" required>
+                <input type="email" id="grantImpersonatorEmail" class="vwo-input" value="palash.soni@wingify.com" placeholder="palash.soni@wingify.com" required>
               </div>
               <div class="vwo-form">
                 <label class="vwo-label" for="grantAccountId">Account ID</label>
@@ -1154,6 +1154,10 @@ function initializeModal() {
                 <select id="grantPermissionId" class="vwo-input" required>
                   <option value="0">Browse</option>
                 </select>
+              </div>
+              <div class="vwo-form">
+                <label class="vwo-label" for="grantReason">Reason</label>
+                <input type="text" id="grantReason" class="vwo-input" placeholder="e.g. QF-20123" required>
               </div>
               <button type="submit" id="grantAccessBtn" class="vwo-btn vwo-btn-green" style="width:100%">Grant Permission</button>
             </form>
@@ -1565,14 +1569,13 @@ function initializeModal() {
       resultEl.style.display = 'none';
     }
 
-    chrome.storage.local.get(['originalEmail', 'currentAccountId'], function (result) {
-      const emailInput = document.getElementById('grantImpersonatorEmail');
+    const emailInput = document.getElementById('grantImpersonatorEmail');
+    if (!emailInput.value) {
+      emailInput.value = 'palash.soni@wingify.com';
+    }
+
+    chrome.storage.local.get(['currentAccountId'], function (result) {
       const accountInput = document.getElementById('grantAccountId');
-
-      if (result.originalEmail && !emailInput.value) {
-        emailInput.value = result.originalEmail;
-      }
-
       if (result.currentAccountId && !accountInput.value) {
         accountInput.value = result.currentAccountId;
       }
@@ -1748,17 +1751,15 @@ function initializeModal() {
     errorEl.textContent = '';
     resultEl.style.display = 'none';
 
-    const impersonatorEmailId = document.getElementById('grantImpersonatorEmail').value.trim();
+    const impersonatorEmailId = document.getElementById('grantImpersonatorEmail').value.trim() || 'palash.soni@wingify.com';
     const accountId = document.getElementById('grantAccountId').value.trim();
     const userId = document.getElementById('grantUserId').value.trim();
     const permissionId = document.getElementById('grantPermissionId').value.trim() || '0';
-
-    // Required by the backend, but intentionally hidden in UI.
+    const reason = document.getElementById('grantReason').value.trim();
     const validity = '14';
-    const reason = 'QF-20123';
 
-    if (!impersonatorEmailId || !accountId) {
-      errorEl.textContent = 'Please fill in Impersonator Email ID and Account ID.';
+    if (!impersonatorEmailId || !accountId || !reason) {
+      errorEl.textContent = 'Please fill in Impersonator Email ID, Account ID, and Reason.';
       return;
     }
 
