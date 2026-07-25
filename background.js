@@ -261,38 +261,14 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'exitImpersonate') {
+    // Prefer /access switch — logout + /login/sso commonly returns 401 after session clear
     const authBase = request.authBaseUrl ||
       (sender.tab && sender.tab.url && sender.tab.url.includes('wingify.com')
         ? 'https://app.wingify.com/'
         : 'https://app.vwo.com/');
 
-    fetch(authBase + 'logout', { credentials: 'include', redirect: 'manual' })
-      .catch(() => {})
-      .then(() => {
-        return fetch(authBase + 'login/sso', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: request.email }),
-          credentials: 'include'
-        });
-      })
-      .then(response => {
-        if (!response.ok) {
-          throw new Error('SSO login failed (HTTP ' + response.status + ')');
-        }
-        return fetch(authBase + 'access?accountId=' + encodeURIComponent(request.accountId), {
-          credentials: 'include',
-          redirect: 'manual'
-        });
-      })
-      .then(() => {
-        sendResponse({ success: true, redirectUrl: authBase + 'access?accountId=' + request.accountId });
-      })
-      .catch(error => {
-        console.error('Error during impersonation exit:', error);
-        sendResponse({ success: false, error: error.message });
-      });
-
-    return true;
+    const redirectUrl = authBase + 'access?accountId=' + encodeURIComponent(request.accountId);
+    sendResponse({ success: true, redirectUrl });
+    return false;
   }
 });

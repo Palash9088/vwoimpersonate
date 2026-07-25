@@ -97,55 +97,27 @@ let VWoImpLoginData = {
     const impersonateLoader = VWoImpLoginData.createImpersonateLoader();
     impersonateLoader.showLoader(); // Show the loader when starting the process
 
-    chrome.storage.local.get(['originalAccountId', 'originalEmail'], function (result) {
+    chrome.storage.local.get(['originalAccountId'], function (result) {
       const accountId = result.originalAccountId;
-      const email = result.originalEmail;
 
-      if (!accountId || !email) {
-        console.error('Account ID or email not found. Please set up impersonation settings.');
-        impersonateLoader.hideLoader(); // Hide loader if there's an error
-        
-        // Display a more helpful message with a link to the settings
-        VWoImpLoginData.displayErrorMessage('Configuration Required', 
-          'Please set up your original account credentials in the extension settings.\nClick the extension icon in the toolbar and enter your account ID and email.');
-        
+      if (!accountId) {
+        impersonateLoader.hideLoader();
+        VWoImpLoginData.displayErrorMessage(
+          'Configuration Required',
+          'Please set your Original Account ID in the extension settings.\nClick the extension icon in the toolbar and save your account ID.'
+        );
         return;
       }
 
+      // Switch back to the original account via /access (same as enter-impersonation).
+      // Logout + /login/sso often returns HTTP 401 after the session is cleared.
       const authBase = getAuthBaseUrl();
       const onAuthDomain = getVwoBaseUrl() === authBase;
+      const accessUrl = (onAuthDomain ? getVwoBaseUrl() : authBase) +
+        'access?accountId=' + encodeURIComponent(accountId);
 
-      // On testapp/subdomains, delegate to background — cross-origin SSO won't set cookies from content script
-      if (!onAuthDomain && isExtensionContextValid()) {
-        chrome.runtime.sendMessage({
-          action: 'exitImpersonate',
-          email,
-          accountId,
-          authBaseUrl: authBase
-        }, function (response) {
-          if (response && response.success && response.redirectUrl) {
-            window.location.href = response.redirectUrl;
-          } else {
-            impersonateLoader.hideLoader();
-            VWoImpLoginData.displayErrorMessage(
-              'Exit Impersonation Failed',
-              (response && response.error) || 'Could not complete SSO. Please try again.'
-            );
-          }
-        });
-        return;
-      }
-
-      // Logout first, then SSO regardless of outcome
-      fetch(getAuthBaseUrl() + 'logout', {
-        method: 'GET',
-        credentials: 'include',
-        redirect: 'manual'   // don't follow cross-origin redirects
-      })
-        .catch(() => {})     // ignore network/CORS errors — session may still be cleared
-        .finally(() => {
-          performSSOLogin(email, accountId, impersonateLoader);
-        });
+      updateAccountSettings(accountId);
+      window.location.href = accessUrl;
     });
   },
   // Add a function to display error messages
@@ -1024,6 +996,7 @@ function initializeModal() {
       <div class="vwo-tabs">
         <button class="vwo-tablink active" data-tab="debugger">Debugger</button>
         <button class="vwo-tablink" data-tab="login-response">/login Response</button>
+        <button class="vwo-tablink" data-tab="account-verify">IP &amp; Timezone</button>
         <button class="vwo-tablink" data-tab="converter">Timezone Converter</button>
         <button class="vwo-tablink" data-tab="grant-access">Grant Access</button>
       </div>
@@ -1077,6 +1050,35 @@ function initializeModal() {
             <span id="vwoLoginFetchTime" class="vwo-fetch-time"></span>
           </div>
           <pre id="vwoLoginResponse" class="vwo-json-viewer">Loading…</pre>
+        </div>
+
+        <!-- IP & Timezone Verification Tab -->
+        <div id="account-verify-tab" class="vwo-tab-content">
+          <div class="vwo-form" style="margin-top:0">
+            <label class="vwo-label" for="verifyAccountIdInput">Account ID</label>
+            <input type="text" id="verifyAccountIdInput" class="vwo-input" placeholder="Account ID" maxlength="9">
+          </div>
+          <div class="vwo-verify-actions">
+            <button type="button" id="vwoRefreshAccountVerify" class="vwo-btn vwo-btn-blue">↻ Fetch</button>
+            <button type="button" id="vwoCopyAccountVerify" class="vwo-btn vwo-btn-outline">Copy JSON</button>
+            <span id="vwoAccountVerifyFetchTime" class="vwo-fetch-time"></span>
+          </div>
+          <div id="vwoAccountVerifySummary" class="vwo-verify-summary">
+            <div class="vwo-panel-title">Account</div>
+            <div class="vwo-info-row"><span class="vwo-label">Name</span><span id="verifyAccountName" class="vwo-value">—</span></div>
+            <div class="vwo-info-row"><span class="vwo-label">Account ID</span><span id="verifyAccountId" class="vwo-value">—</span></div>
+            <div class="vwo-panel-title" style="margin-top:14px">Timezone</div>
+            <div class="vwo-info-row"><span class="vwo-label">Timezone</span><span id="verifyTimezone" class="vwo-value">—</span></div>
+            <div class="vwo-info-row"><span class="vwo-label">Offset</span><span id="verifyTimezoneOffset" class="vwo-value">—</span></div>
+            <div class="vwo-panel-title" style="margin-top:14px">Excluded IPs <span id="verifyExcludedIpCount" class="vwo-optional"></span></div>
+            <ul id="verifyExcludedIps" class="vwo-verify-list"><li class="vwo-ff-empty">No data yet</li></ul>
+            <div class="vwo-panel-title" style="margin-top:14px">Excluded IP Ranges <span id="verifyExcludedRangeCount" class="vwo-optional"></span></div>
+            <ul id="verifyExcludedRanges" class="vwo-verify-list"><li class="vwo-ff-empty">No data yet</li></ul>
+          </div>
+          <details class="vwo-grant-advanced" style="margin-top:12px">
+            <summary>Raw /account JSON</summary>
+            <pre id="vwoAccountVerifyResponse" class="vwo-json-viewer" style="margin-top:8px;max-height:220px">—</pre>
+          </details>
         </div>
 
         <!-- Timezone Converter Tab -->
@@ -1548,6 +1550,36 @@ function initializeModal() {
     .vwo-grant-result { margin-top: 12px; max-height: 180px; }
     .vwo-grant-login-gate .vwo-grant-actions { margin-bottom: 12px; }
     .vwo-grant-login-gate .vwo-btn { width: auto; }
+
+    /* Account Verify tab */
+    .vwo-verify-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 10px 0 14px;
+      flex-wrap: wrap;
+    }
+    .vwo-verify-actions .vwo-btn { width: auto; }
+    .vwo-verify-actions .vwo-fetch-time { margin-left: auto; }
+    .vwo-verify-summary { padding: 4px 0; }
+    .vwo-verify-list {
+      list-style: none;
+      margin: 6px 0 0;
+      padding: 0;
+      max-height: 160px;
+      overflow: auto;
+      border: 1px solid #e8e8f0;
+      border-radius: 8px;
+      background: #fafafa;
+    }
+    .vwo-verify-list li {
+      padding: 8px 12px;
+      font-size: 12px;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      border-bottom: 1px solid #eee;
+      word-break: break-all;
+    }
+    .vwo-verify-list li:last-child { border-bottom: none; }
   `;
 
   const modalStyleTag = document.createElement('style');
@@ -1574,8 +1606,126 @@ function initializeModal() {
       const tabId = this.dataset.tab + '-tab';
       document.getElementById(tabId).classList.add('active');
       if (this.dataset.tab === 'login-response') fetchAndShowLoginResponse();
+      if (this.dataset.tab === 'account-verify') initAccountVerifyTab();
       if (this.dataset.tab === 'grant-access') initGrantAccessTab();
     });
+  });
+
+  function renderIpList(listEl, items) {
+    listEl.innerHTML = '';
+    if (!items || !items.length) {
+      listEl.innerHTML = '<li class="vwo-ff-empty">None</li>';
+      return;
+    }
+    items.forEach(item => {
+      const li = document.createElement('li');
+      li.textContent = typeof item === 'string' ? item : JSON.stringify(item);
+      listEl.appendChild(li);
+    });
+  }
+
+  function fetchAndShowAccountVerify(accountId) {
+    const timeEl = document.getElementById('vwoAccountVerifyFetchTime');
+    const rawEl = document.getElementById('vwoAccountVerifyResponse');
+    const start = Date.now();
+
+    rawEl.textContent = 'Fetching…';
+    timeEl.textContent = '';
+
+    const url = `/account?accountId=${encodeURIComponent(accountId)}`;
+    fetch(url, { credentials: 'include' })
+      .then(r => {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(data => {
+        document.getElementById('verifyAccountName').textContent = data.name || '—';
+        document.getElementById('verifyAccountId').textContent = data.id || accountId;
+        document.getElementById('verifyTimezone').textContent = data.timezone || '—';
+        document.getElementById('verifyTimezoneOffset').textContent = data.timezoneOffset || '—';
+
+        const regexIps = (data.excludedIps && data.excludedIps.regex) || [];
+        const rangeIps = (data.excludedIps && data.excludedIps.range) || [];
+
+        document.getElementById('verifyExcludedIpCount').textContent = `(${regexIps.length})`;
+        document.getElementById('verifyExcludedRangeCount').textContent = `(${rangeIps.length})`;
+
+        renderIpList(document.getElementById('verifyExcludedIps'), regexIps);
+        renderIpList(document.getElementById('verifyExcludedRanges'), rangeIps);
+
+        rawEl.textContent = JSON.stringify(data, null, 2);
+        timeEl.textContent = `Fetched in ${Date.now() - start}ms · ${new Date().toLocaleTimeString()}`;
+      })
+      .catch(err => {
+        document.getElementById('verifyTimezone').textContent = '—';
+        document.getElementById('verifyTimezoneOffset').textContent = '—';
+        renderIpList(document.getElementById('verifyExcludedIps'), []);
+        renderIpList(document.getElementById('verifyExcludedRanges'), []);
+        rawEl.textContent = 'Error: ' + err.message;
+        timeEl.textContent = '';
+      });
+  }
+
+  function initAccountVerifyTab() {
+    const input = document.getElementById('verifyAccountIdInput');
+
+    function resolveAndFetch() {
+      const typed = input.value.trim();
+      if (typed) {
+        fetchAndShowAccountVerify(typed);
+        return;
+      }
+
+      chrome.storage.local.get(['currentAccountId'], function (result) {
+        if (result.currentAccountId) {
+          input.value = result.currentAccountId;
+          fetchAndShowAccountVerify(result.currentAccountId);
+          return;
+        }
+
+        fetch('/login')
+          .then(r => r.json())
+          .then(data => {
+            if (data.accountId) {
+              input.value = data.accountId;
+              fetchAndShowAccountVerify(data.accountId);
+            } else {
+              document.getElementById('vwoAccountVerifyResponse').textContent =
+                'No account ID available. Enter one and click Fetch.';
+            }
+          })
+          .catch(() => {
+            document.getElementById('vwoAccountVerifyResponse').textContent =
+              'Could not resolve account ID. Enter one and click Fetch.';
+          });
+      });
+    }
+
+    resolveAndFetch();
+  }
+
+  document.getElementById('vwoRefreshAccountVerify').addEventListener('click', function () {
+    const accountId = document.getElementById('verifyAccountIdInput').value.trim();
+    if (!accountId) {
+      initAccountVerifyTab();
+      return;
+    }
+    fetchAndShowAccountVerify(accountId);
+  });
+
+  document.getElementById('vwoCopyAccountVerify').addEventListener('click', function () {
+    const text = document.getElementById('vwoAccountVerifyResponse').textContent;
+    navigator.clipboard.writeText(text).then(() => {
+      this.textContent = 'Copied!';
+      setTimeout(() => { this.textContent = 'Copy JSON'; }, 1500);
+    });
+  });
+
+  document.getElementById('verifyAccountIdInput').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      document.getElementById('vwoRefreshAccountVerify').click();
+    }
   });
 
   function setGrantAccessView(loggedIn, statusText) {
