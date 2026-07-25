@@ -1,7 +1,22 @@
 const VWO_ADMIN_BASE = 'https://v2.visualwebsiteoptimizer.com';
 const TOKEN_MAX_AGE_MS = 30 * 60 * 1000;
 
+function isLoginPageHtml(html, url) {
+  if (!html) return true;
+  if (url && /login\.php/i.test(url)) return true;
+
+  return (
+    /var\s+page\s*=\s*["']login["']/i.test(html) ||
+    /id=["']logincontainer["']/i.test(html) ||
+    /<title>\s*Login\s*::/i.test(html) ||
+    (/name=["']username["']/i.test(html) && /name=["']password["']/i.test(html)) ||
+    /google accounts|gcp-web|Sign in with Google/i.test(html)
+  );
+}
+
 function extractVwoTokenFromHtml(html) {
+  if (isLoginPageHtml(html)) return null;
+
   const patterns = [
     /name=["']vwotoken["'][^>]*value=["']([^"']+)["']/i,
     /value=["']([^"']+)["'][^>]*name=["']vwotoken["']/i,
@@ -16,6 +31,10 @@ function extractVwoTokenFromHtml(html) {
   }
 
   return null;
+}
+
+function clearCachedToken() {
+  return chrome.storage.local.remove(['vwoAdminToken', 'vwoAdminTokenAt']);
 }
 
 function getCachedToken() {
@@ -36,21 +55,43 @@ function getCachedToken() {
   });
 }
 
+function cacheToken(token) {
+  chrome.storage.local.set({
+    vwoAdminToken: token,
+    vwoAdminTokenAt: Date.now()
+  });
+}
+
 async function getTokenFromOpenAdminTab() {
   const tabs = await chrome.tabs.query({ url: `${VWO_ADMIN_BASE}/*` });
 
   for (const tab of tabs) {
     if (!tab.id) continue;
 
+    // Skip obvious login tabs
+    if (tab.url && /login\.php/i.test(tab.url)) continue;
+
     try {
       const results = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
         func: () => {
+          const html = document.documentElement.innerHTML;
+          const url = location.href;
+          const isLogin =
+            /login\.php/i.test(url) ||
+            /var\s+page\s*=\s*["']login["']/i.test(html) ||
+            !!document.getElementById('logincontainer') ||
+            /<title>\s*Login\s*::/i.test(html) ||
+            (!!document.querySelector('input[name="username"]') &&
+              !!document.querySelector('input[name="password"]'));
+
+          if (isLogin) return { loggedIn: false, token: null };
+
           const input = document.querySelector('input[name="vwotoken"]');
-          if (input && input.value) return input.value;
+          if (input && input.value) return { loggedIn: true, token: input.value };
 
           if (typeof window.vwotoken === 'string' && window.vwotoken) {
-            return window.vwotoken;
+            return { loggedIn: true, token: window.vwotoken };
           }
 
           const patterns = [
@@ -61,7 +102,7 @@ async function getTokenFromOpenAdminTab() {
             /vwotoken=([a-f0-9]{32})/i
           ];
 
-          const sources = [document.documentElement.innerHTML];
+          const sources = [html];
           for (const script of document.scripts) {
             sources.push(script.textContent);
           }
@@ -69,21 +110,18 @@ async function getTokenFromOpenAdminTab() {
           for (const source of sources) {
             for (const pattern of patterns) {
               const match = source.match(pattern);
-              if (match) return match[1];
+              if (match) return { loggedIn: true, token: match[1] };
             }
           }
 
-          return null;
+          return { loggedIn: false, token: null };
         }
       });
 
-      const token = results[0] && results[0].result;
-      if (token) {
-        chrome.storage.local.set({
-          vwoAdminToken: token,
-          vwoAdminTokenAt: Date.now()
-        });
-        return token;
+      const result = results[0] && results[0].result;
+      if (result && result.loggedIn && result.token) {
+        cacheToken(result.token);
+        return result.token;
       }
     } catch (error) {
       console.warn('Could not read vwotoken from tab', tab.id, error.message);
@@ -98,7 +136,8 @@ async function fetchAdminPage() {
     credentials: 'include',
     headers: {
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-    }
+    },
+    redirect: 'follow'
   });
 
   const html = await response.text();
@@ -107,35 +146,36 @@ async function fetchAdminPage() {
 
 async function getVwoToken(manualToken) {
   if (manualToken) {
-    chrome.storage.local.set({
-      vwoAdminToken: manualToken,
-      vwoAdminTokenAt: Date.now()
-    });
+    cacheToken(manualToken);
     return manualToken;
   }
+
+  // Prefer a live check against /admin/ so a cached login-page token can't fool us
+  const { response, html } = await fetchAdminPage();
+  const finalUrl = response.url || '';
+
+  if (isLoginPageHtml(html, finalUrl)) {
+    await clearCachedToken();
+    throw new Error(
+      'Not logged in to VWO admin. Click Login to Admin, sign in with your credentials, then click Refresh.'
+    );
+  }
+
+  const token = extractVwoTokenFromHtml(html);
+  if (token) {
+    cacheToken(token);
+    return token;
+  }
+
+  // Fall back to an already-open authenticated admin tab
+  const fromTab = await getTokenFromOpenAdminTab();
+  if (fromTab) return fromTab;
 
   const cached = await getCachedToken();
   if (cached) return cached;
 
-  const fromTab = await getTokenFromOpenAdminTab();
-  if (fromTab) return fromTab;
-
-  const { response, html } = await fetchAdminPage();
-  const token = extractVwoTokenFromHtml(html);
-
-  if (token) {
-    chrome.storage.local.set({
-      vwoAdminToken: token,
-      vwoAdminTokenAt: Date.now()
-    });
-    return token;
-  }
-
-  const looksLikeLogin = /login\.php|sign\s*in|google accounts|gcp-web/i.test(html) || response.url.includes('login');
   throw new Error(
-    looksLikeLogin
-      ? 'Not logged in to VWO admin. Open https://v2.visualwebsiteoptimizer.com/admin/ in a tab, sign in, then try again.'
-      : 'Could not find vwotoken. Open the VWO admin panel in a browser tab (keep it open), then retry.'
+    'Could not find vwotoken. Open the VWO admin panel in a browser tab after signing in, then retry.'
   );
 }
 
@@ -197,7 +237,9 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
   }
 
   if (request.action === 'openAdminLogin') {
-    chrome.tabs.create({ url: `${VWO_ADMIN_BASE}/admin/` });
+    chrome.tabs.create({
+      url: `${VWO_ADMIN_BASE}/login.php#account:~:text=Grant%20Impersonation%20Permission`
+    });
     sendResponse({ success: true });
     return false;
   }

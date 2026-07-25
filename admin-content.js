@@ -1,4 +1,21 @@
+function isAdminLoginPage() {
+  const url = location.href;
+  const html = document.documentElement.innerHTML;
+
+  return (
+    /login\.php/i.test(url) ||
+    /var\s+page\s*=\s*["']login["']/i.test(html) ||
+    !!document.getElementById('logincontainer') ||
+    /<title>\s*Login\s*::/i.test(document.title || html) ||
+    (!!document.querySelector('input[name="username"]') &&
+      !!document.querySelector('input[name="password"]'))
+  );
+}
+
 function extractVwoTokenFromPage() {
+  // Login pages also expose a CSRF vwotoken — that is NOT an admin session.
+  if (isAdminLoginPage()) return null;
+
   const input = document.querySelector('input[name="vwotoken"]');
   if (input && input.value) return input.value;
 
@@ -31,6 +48,11 @@ function extractVwoTokenFromPage() {
 }
 
 function cacheVwoToken() {
+  if (isAdminLoginPage()) {
+    chrome.storage.local.remove(['vwoAdminToken', 'vwoAdminTokenAt']);
+    return null;
+  }
+
   const token = extractVwoTokenFromPage();
   if (token) {
     chrome.storage.local.set({
@@ -51,7 +73,7 @@ setInterval(() => location.reload(), 15 * 60 * 1000);
 
 chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   if (request.action === 'extractVwoToken') {
-    sendResponse({ token: cacheVwoToken() });
+    sendResponse({ token: cacheVwoToken(), isLoginPage: isAdminLoginPage() });
     return false;
   }
 });

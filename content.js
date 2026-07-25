@@ -1137,33 +1137,47 @@ function initializeModal() {
         <!-- Grant Access Tab -->
         <div id="grant-access-tab" class="vwo-tab-content">
           <div class="vwo-grant-panel">
-            <form id="grantAccessForm" class="vwo-form vwo-grant-form">
-              <div class="vwo-form">
-                <label class="vwo-label" for="grantImpersonatorEmail">Impersonator Email ID</label>
-                <input type="email" id="grantImpersonatorEmail" class="vwo-input" value="palash.soni@wingify.com" placeholder="palash.soni@wingify.com" required>
+            <div id="vwoGrantLoginGate" class="vwo-grant-login-gate" style="display:none">
+              <div class="vwo-grant-note">
+                You need to be logged into the VWO admin panel before granting impersonation permission.
               </div>
-              <div class="vwo-form">
-                <label class="vwo-label" for="grantAccountId">Account ID</label>
-                <input type="text" id="grantAccountId" class="vwo-input" placeholder="Target account ID" maxlength="9" required>
+              <div class="vwo-grant-actions">
+                <button type="button" id="vwoOpenAdminLogin" class="vwo-btn vwo-btn-blue">Login to Admin</button>
+                <button type="button" id="vwoRefreshGrantSession" class="vwo-btn vwo-btn-outline">I've logged in — Refresh</button>
               </div>
-              <div class="vwo-form">
-                <label class="vwo-label" for="grantUserId">User ID <span class="vwo-optional">(optional)</span></label>
-                <input type="text" id="grantUserId" class="vwo-input" placeholder="Leave blank if unknown">
-              </div>
-              <div class="vwo-form">
-                <label class="vwo-label" for="grantPermissionId">Permission ID</label>
-                <select id="grantPermissionId" class="vwo-input" required>
-                  <option value="0">Browse</option>
-                </select>
-              </div>
-              <div class="vwo-form">
-                <label class="vwo-label" for="grantReason">Reason</label>
-                <input type="text" id="grantReason" class="vwo-input" placeholder="e.g. QF-20123" required>
-              </div>
-              <button type="submit" id="grantAccessBtn" class="vwo-btn vwo-btn-green" style="width:100%">Grant Permission</button>
-            </form>
-            <p id="grantAccessError" class="vwo-error-msg"></p>
-            <pre id="grantAccessResult" class="vwo-json-viewer vwo-grant-result" style="display:none"></pre>
+              <div id="vwoGrantSessionStatus" class="vwo-grant-session">Checking admin session…</div>
+            </div>
+
+            <div id="vwoGrantFormWrap" style="display:none">
+              <div id="vwoGrantLoggedInStatus" class="vwo-grant-session ok">Admin session active</div>
+              <form id="grantAccessForm" class="vwo-form vwo-grant-form">
+                <div class="vwo-form">
+                  <label class="vwo-label" for="grantImpersonatorEmail">Impersonator Email ID</label>
+                  <input type="email" id="grantImpersonatorEmail" class="vwo-input" value="palash.soni@wingify.com" placeholder="palash.soni@wingify.com" required>
+                </div>
+                <div class="vwo-form">
+                  <label class="vwo-label" for="grantAccountId">Account ID</label>
+                  <input type="text" id="grantAccountId" class="vwo-input" placeholder="Target account ID" maxlength="9" required>
+                </div>
+                <div class="vwo-form">
+                  <label class="vwo-label" for="grantUserId">User ID <span class="vwo-optional">(optional)</span></label>
+                  <input type="text" id="grantUserId" class="vwo-input" placeholder="Leave blank if unknown">
+                </div>
+                <div class="vwo-form">
+                  <label class="vwo-label" for="grantPermissionId">Permission ID</label>
+                  <select id="grantPermissionId" class="vwo-input" required>
+                    <option value="0">Browse</option>
+                  </select>
+                </div>
+                <div class="vwo-form">
+                  <label class="vwo-label" for="grantReason">Reason</label>
+                  <input type="text" id="grantReason" class="vwo-input" placeholder="e.g. QF-20123" required>
+                </div>
+                <button type="submit" id="grantAccessBtn" class="vwo-btn vwo-btn-green" style="width:100%">Grant Permission</button>
+              </form>
+              <p id="grantAccessError" class="vwo-error-msg"></p>
+              <pre id="grantAccessResult" class="vwo-json-viewer vwo-grant-result" style="display:none"></pre>
+            </div>
           </div>
         </div>
 
@@ -1532,6 +1546,8 @@ function initializeModal() {
     .vwo-grant-form { margin-top: 4px; }
     .vwo-optional { color: #999; font-weight: 400; font-size: 11px; }
     .vwo-grant-result { margin-top: 12px; max-height: 180px; }
+    .vwo-grant-login-gate .vwo-grant-actions { margin-bottom: 12px; }
+    .vwo-grant-login-gate .vwo-btn { width: auto; }
   `;
 
   const modalStyleTag = document.createElement('style');
@@ -1562,14 +1578,26 @@ function initializeModal() {
     });
   });
 
-  function initGrantAccessTab(preserveResult) {
-    const errorEl = document.getElementById('grantAccessError');
-    const resultEl = document.getElementById('grantAccessResult');
-    if (!preserveResult) {
-      errorEl.textContent = '';
-      resultEl.style.display = 'none';
-    }
+  function setGrantAccessView(loggedIn, statusText) {
+    const loginGate = document.getElementById('vwoGrantLoginGate');
+    const formWrap = document.getElementById('vwoGrantFormWrap');
+    const gateStatus = document.getElementById('vwoGrantSessionStatus');
+    const loggedInStatus = document.getElementById('vwoGrantLoggedInStatus');
 
+    if (loggedIn) {
+      loginGate.style.display = 'none';
+      formWrap.style.display = 'block';
+      loggedInStatus.textContent = statusText || 'Admin session active';
+      loggedInStatus.className = 'vwo-grant-session ok';
+    } else {
+      loginGate.style.display = 'block';
+      formWrap.style.display = 'none';
+      gateStatus.textContent = statusText || 'Not logged in to VWO admin.';
+      gateStatus.className = 'vwo-grant-session warn';
+    }
+  }
+
+  function prefillGrantAccessForm() {
     const emailInput = document.getElementById('grantImpersonatorEmail');
     if (!emailInput.value) {
       emailInput.value = 'palash.soni@wingify.com';
@@ -1592,6 +1620,48 @@ function initializeModal() {
       })
       .catch(() => {});
   }
+
+  function checkGrantAdminSession(preserveResult) {
+    const errorEl = document.getElementById('grantAccessError');
+    const resultEl = document.getElementById('grantAccessResult');
+    const gateStatus = document.getElementById('vwoGrantSessionStatus');
+
+    if (!preserveResult && errorEl && resultEl) {
+      errorEl.textContent = '';
+      resultEl.style.display = 'none';
+    }
+
+    gateStatus.textContent = 'Checking admin session…';
+    gateStatus.className = 'vwo-grant-session';
+    document.getElementById('vwoGrantLoginGate').style.display = 'block';
+    document.getElementById('vwoGrantFormWrap').style.display = 'none';
+
+    chrome.runtime.sendMessage({ action: 'checkAdminSession' }, function (response) {
+      if (chrome.runtime.lastError) {
+        setGrantAccessView(false, 'Extension error: ' + chrome.runtime.lastError.message);
+        return;
+      }
+
+      if (response && response.success) {
+        setGrantAccessView(true, 'Admin session active (token: ' + response.tokenPreview + ')');
+        prefillGrantAccessForm();
+      } else {
+        setGrantAccessView(false, (response && response.error) || 'Not logged in. Click Login to Admin, then Refresh.');
+      }
+    });
+  }
+
+  function initGrantAccessTab(preserveResult) {
+    checkGrantAdminSession(preserveResult);
+  }
+
+  document.getElementById('vwoOpenAdminLogin').addEventListener('click', function () {
+    chrome.runtime.sendMessage({ action: 'openAdminLogin' });
+  });
+
+  document.getElementById('vwoRefreshGrantSession').addEventListener('click', function () {
+    checkGrantAdminSession(false);
+  });
 
   // /login Response tab logic
   function fetchAndShowLoginResponse() {
