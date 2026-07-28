@@ -95,29 +95,55 @@ let VWoImpLoginData = {
   },
   exitImpersonate: function () {
     const impersonateLoader = VWoImpLoginData.createImpersonateLoader();
-    impersonateLoader.showLoader(); // Show the loader when starting the process
+    impersonateLoader.showLoader();
 
-    chrome.storage.local.get(['originalAccountId'], function (result) {
+    chrome.storage.local.get(['originalAccountId', 'originalEmail'], function (result) {
       const accountId = result.originalAccountId;
+      const email = result.originalEmail;
 
-      if (!accountId) {
+      if (!accountId || !email) {
         impersonateLoader.hideLoader();
         VWoImpLoginData.displayErrorMessage(
           'Configuration Required',
-          'Please set your Original Account ID in the extension settings.\nClick the extension icon in the toolbar and save your account ID.'
+          'Please set your Original Account ID and Email in the extension settings.\nClick the extension icon and save both fields.'
         );
         return;
       }
 
-      // Switch back to the original account via /access (same as enter-impersonation).
-      // Logout + /login/sso often returns HTTP 401 after the session is cleared.
-      const authBase = getAuthBaseUrl();
-      const onAuthDomain = getVwoBaseUrl() === authBase;
-      const accessUrl = (onAuthDomain ? getVwoBaseUrl() : authBase) +
-        'access?accountId=' + encodeURIComponent(accountId);
+      if (!isExtensionContextValid()) {
+        impersonateLoader.hideLoader();
+        showExtensionReloadBanner();
+        return;
+      }
 
-      updateAccountSettings(accountId);
-      window.location.href = accessUrl;
+      // Background handles logout + SSO so cookies work across domains
+      chrome.runtime.sendMessage({
+        action: 'exitImpersonate',
+        email,
+        accountId,
+        authBaseUrl: getAuthBaseUrl()
+      }, function (response) {
+        if (chrome.runtime.lastError) {
+          impersonateLoader.hideLoader();
+          VWoImpLoginData.displayErrorMessage(
+            'Exit Impersonation Failed',
+            chrome.runtime.lastError.message
+          );
+          return;
+        }
+
+        if (response && response.success && response.redirectUrl) {
+          updateAccountSettings(accountId);
+          window.location.href = response.redirectUrl;
+          return;
+        }
+
+        impersonateLoader.hideLoader();
+        VWoImpLoginData.displayErrorMessage(
+          'Exit Impersonation Failed',
+          (response && response.error) || 'Logout/SSO did not complete. Please try again.'
+        );
+      });
     });
   },
   // Add a function to display error messages
@@ -2185,77 +2211,25 @@ function updateImpersonateButtonsVisibility() {
   });
 }
 
-// Function to perform SSO login
-function isAllowedRedirect(url) {
-  try {
-    const parsed = new URL(url);
-    return parsed.hostname.endsWith('.vwo.com') || parsed.hostname.endsWith('.wingify.com');
-  } catch (e) {
-    return false;
-  }
-}
-
+// Exit flow uses background.js for logout + SSO
 function performSSOLogin(email, accountId, impersonateLoader) {
-  // Safety net — hide loader after 15s no matter what
-  const loaderTimeout = setTimeout(() => {
+  chrome.runtime.sendMessage({
+    action: 'exitImpersonate',
+    email,
+    accountId,
+    authBaseUrl: getAuthBaseUrl()
+  }, function (response) {
+    if (response && response.success && response.redirectUrl) {
+      updateAccountSettings(accountId);
+      window.location.href = response.redirectUrl;
+      return;
+    }
     if (impersonateLoader) impersonateLoader.hideLoader();
     VWoImpLoginData.displayErrorMessage(
       'Exit Impersonation Failed',
-      'SSO login timed out. Please try again or log out manually.'
+      (response && response.error) || 'SSO login failed.'
     );
-  }, 15000);
-
-  const authBase = getAuthBaseUrl();
-
-  fetch(authBase + 'login/sso', {
-    method: 'POST',
-    headers: {
-      'Accept': 'application/json, */*',
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ username: email }),
-    credentials: 'include'
-  })
-    .then(async (response) => {
-      let data = {};
-      const text = await response.text();
-      if (text) {
-        try {
-          data = JSON.parse(text);
-        } catch (e) {
-          console.warn('SSO response was not JSON:', text.slice(0, 200));
-        }
-      }
-      return { response, data };
-    })
-    .then(({ response, data }) => {
-      clearTimeout(loaderTimeout);
-
-      const redirectUrl = data.url || data.redirectUrl || data.redirect_url;
-      if (redirectUrl && isAllowedRedirect(redirectUrl)) {
-        window.location.href = redirectUrl;
-        return;
-      }
-
-      // SSO often returns no URL — switch back via /access (same as background.js flow)
-      if (response.ok && accountId) {
-        window.location.href = authBase + 'access?accountId=' + encodeURIComponent(accountId);
-        return;
-      }
-
-      if (impersonateLoader) impersonateLoader.hideLoader();
-      const detail = data.message || data.error || ('HTTP ' + response.status);
-      VWoImpLoginData.displayErrorMessage(
-        'Exit Impersonation Failed',
-        'SSO login did not complete. ' + detail + '\nPlease try logging out manually.'
-      );
-    })
-    .catch(error => {
-      clearTimeout(loaderTimeout);
-      console.error('Error during SSO login:', error);
-      if (impersonateLoader) impersonateLoader.hideLoader();
-      VWoImpLoginData.displayErrorMessage('Exit Impersonation Failed', 'SSO request failed: ' + error.message);
-    });
+  });
 }
 
 // Get account IDs as strings for comparison

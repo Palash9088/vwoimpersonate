@@ -261,14 +261,68 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'exitImpersonate') {
-    // Prefer /access switch — logout + /login/sso commonly returns 401 after session clear
     const authBase = request.authBaseUrl ||
       (sender.tab && sender.tab.url && sender.tab.url.includes('wingify.com')
         ? 'https://app.wingify.com/'
         : 'https://app.vwo.com/');
+    const email = request.email;
 
-    const redirectUrl = authBase + 'access?accountId=' + encodeURIComponent(request.accountId);
-    sendResponse({ success: true, redirectUrl });
-    return false;
+    if (!email) {
+      sendResponse({ success: false, error: 'Original email is required for SSO re-login.' });
+      return false;
+    }
+
+    // 1) Get SSO redirect while session still exists
+    // 2) Logout to clear impersonation
+    // 3) Navigate to IdP / app home — never /access (that is impersonation)
+    fetch(authBase + 'login/sso', {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json, */*',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ username: email }),
+      credentials: 'include'
+    })
+      .then(async (response) => {
+        let data = {};
+        const text = await response.text();
+        if (text) {
+          try {
+            data = JSON.parse(text);
+          } catch (_) {
+          }
+        }
+
+        const ssoUrl = data.url || data.redirectUrl || data.redirect_url;
+        let redirectUrl = null;
+
+        if (ssoUrl) {
+          const parsed = new URL(ssoUrl);
+          if (parsed.protocol !== 'https:') {
+            throw new Error('SSO returned a non-HTTPS redirect');
+          }
+          redirectUrl = ssoUrl;
+        } else if (response.ok) {
+          redirectUrl = authBase;
+        } else {
+          throw new Error(data.message || data.error || ('SSO failed (HTTP ' + response.status + ')'));
+        }
+
+        // Clear impersonated session, then send user through SSO / home
+        await fetch(authBase + 'logout', {
+          method: 'GET',
+          credentials: 'include',
+          redirect: 'manual'
+        }).catch(() => {});
+
+        sendResponse({ success: true, redirectUrl });
+      })
+      .catch((error) => {
+        console.error('Error during impersonation exit:', error);
+        sendResponse({ success: false, error: error.message });
+      });
+
+    return true;
   }
 });
