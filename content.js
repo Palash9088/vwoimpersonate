@@ -557,14 +557,25 @@ initializeModal();
 // Call the check on page load
 // checkCurrentAccountStatus(); // This is now called by initializeUI
 
-// Auto-refresh testapp / visualwebsiteoptimizer URLs every 15 minutes
+// Auto-refresh testapp / visualwebsiteoptimizer URLs every 15 minutes.
+// If the user is on the tab, ask first; if the tab is in the background, refresh immediately.
 let testappRefreshInterval = null;
+
+function refreshPageIfAllowed() {
+  if (document.visibilityState === 'visible') {
+    if (window.confirm('This page is due for a refresh. Refresh now?')) {
+      location.reload();
+    }
+    return;
+  }
+  location.reload();
+}
 
 function syncTestappRefresh() {
   const href = window.location.href;
   const shouldRefresh = href.includes('testapp') || href.includes('visualwebsiteoptimizer');
   if (shouldRefresh && !testappRefreshInterval) {
-    testappRefreshInterval = setInterval(() => location.reload(), 15 * 60 * 1000);
+    testappRefreshInterval = setInterval(refreshPageIfAllowed, 15 * 60 * 1000);
   } else if (!shouldRefresh && testappRefreshInterval) {
     clearInterval(testappRefreshInterval);
     testappRefreshInterval = null;
