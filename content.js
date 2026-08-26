@@ -195,14 +195,62 @@ let VWoImpLoginData = {
       document.body.removeChild(errorMessage);
     });
   },
-  // Function to switch the account
+  // Function to switch the account without a full document reload (avoids LOADING WINGIFY flash).
+  // Root cause of flicker was window.location → /access (full navigation). Instead:
+  // 1) fetch /access to establish the impersonation session (cookies)
+  // 2) soft-navigate via hash so the SPA updates in place
   switchAccount: function (accountId) {
-    // Update the storage before switching
-    updateAccountSettings(accountId);
-    
-    // Navigate to the account on the current domain (works on testapp and prod)
-    const newUrl = `${getVwoBaseUrl()}access?accountId=${accountId}`;
-    window.location.href = newUrl;
+    const id = String(accountId || '').trim();
+    if (!id) return;
+
+    updateAccountSettings(id);
+    window.__vwoImpSwitching = true;
+
+    if (typeof closeModal === 'function') {
+      try { closeModal(); } catch (_) {}
+    }
+
+    const base = getVwoBaseUrl();
+    const accessUrl = `${base}access?accountId=${encodeURIComponent(id)}`;
+
+    const finishSoftNav = () => {
+      const nextHash = `#/dashboard?accountId=${encodeURIComponent(id)}`;
+      if (window.location.hash === nextHash) {
+        // Force SPA to re-read account if hash is unchanged
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+      } else {
+        window.location.hash = nextHash;
+      }
+      // Give the SPA a moment, then refresh impersonation UI once
+      setTimeout(() => {
+        window.__vwoImpSwitching = false;
+        checkCurrentAccountStatus();
+      }, 800);
+    };
+
+    const hardFallback = () => {
+      window.location.assign(accessUrl);
+    };
+
+    fetch(accessUrl, {
+      method: 'GET',
+      credentials: 'include',
+      redirect: 'follow',
+      headers: { Accept: 'text/html,application/xhtml+xml,*/*' },
+      cache: 'no-store'
+    })
+      .then((response) => {
+        // Session should be switched; soft-nav even on non-OK if cookies were set via redirect chain
+        if (response.type === 'opaqueredirect') {
+          hardFallback();
+          return;
+        }
+        finishSoftNav();
+      })
+      .catch(() => {
+        // If fetch cannot complete the access handshake, fall back to full navigation
+        hardFallback();
+      });
   },
   impersonateDefaultAccount: function() {
     chrome.storage.local.get(['defaultAccountId'], function(result) {
@@ -449,6 +497,8 @@ function safeStorageAccess(callback) {
 
 // Function to check current account status and update UI accordingly
 function checkCurrentAccountStatus() {
+  if (window.__vwoImpSwitching) return;
+
   fetch('/login')
     .then(response => {
       if (!response.ok) {
@@ -457,6 +507,8 @@ function checkCurrentAccountStatus() {
       return response.json();
     })
     .then(data => {
+      if (window.__vwoImpSwitching) return;
+
       const apiAccountId = data.accountId;
       
       if (!apiAccountId) {
@@ -517,6 +569,33 @@ function updateAccountSettings(accountId) {
 }
 
 // Function to initialize the extension
+function whenAppShellReady(callback) {
+  const ready = () =>
+    !!(document.querySelector('#main-page') ||
+      document.querySelector('.header-main') ||
+      document.querySelector('[class*="dashboard"]'));
+
+  if (ready()) {
+    callback();
+    return;
+  }
+
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    observer.disconnect();
+    clearTimeout(fallback);
+    callback();
+  };
+
+  const observer = new MutationObserver(() => {
+    if (ready()) finish();
+  });
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+  const fallback = setTimeout(finish, 6000);
+}
+
 function initializeUI() {
   safeStorageAccess(() => {
     chrome.storage.local.get(['defaultAccountId', 'originalAccountId', 'currentAccountId'], function(result) {
@@ -541,9 +620,14 @@ function initializeUI() {
       
       // Create impersonate button only once - this function checks internally for duplicates
       createImpersonateButton();
-      
-      // Check current account status
-      checkCurrentAccountStatus();
+
+      // Wait for app shell so we do not poke /login during LOADING WINGIFY
+      whenAppShellReady(() => {
+        window.__vwoImpSwitching = false;
+        const dock = document.getElementById('floatingButtonContainer');
+        if (dock) dock.style.visibility = '';
+        checkCurrentAccountStatus();
+      });
     });
   });
 }
@@ -588,36 +672,36 @@ syncTestappRefresh();
 
 // Set up event listener for URL changes with improved handling for account switching
 let lastUrl = window.location.href;
+let urlChangeTimer = null;
+
 const urlChangeObserver = new MutationObserver(() => {
-  if (lastUrl !== window.location.href) {
-    const oldUrl = lastUrl;
-    lastUrl = window.location.href;
+  if (lastUrl === window.location.href) return;
 
-    syncTestappRefresh();
+  lastUrl = window.location.href;
+  syncTestappRefresh();
 
-    // If navigating to an access URL, this could be an account switch
-    const isAccountSwitch = lastUrl.includes('/access') || 
-                          lastUrl.includes('accountId=');
-    
-    if (isAccountSwitch) {
-      // Extract account ID from URL if possible
-      const accountIdMatch = lastUrl.match(/accountId=([0-9]+)/);
-      if (accountIdMatch && accountIdMatch[1]) {
-        updateAccountSettings(accountIdMatch[1]);
-      }
-      
-      // Hide impersonation UI immediately during transition
-      hideImpersonationElements();
-      
-      // For account switches, wait a bit longer before checking status
-      setTimeout(checkCurrentAccountStatus, 1500);
-    } else {
-      // For regular navigation, check after a short delay
-      setTimeout(() => {
-        showImpersonateStatus();
-        updateImpersonateButtonsVisibility();
-      }, 500);
+  // If navigating to an access URL, this could be an account switch
+  const isAccountSwitch = lastUrl.includes('/access') ||
+    /[?&#]accountId=\d+/.test(lastUrl);
+
+  clearTimeout(urlChangeTimer);
+
+  if (isAccountSwitch) {
+    const accountIdMatch = lastUrl.match(/accountId=([0-9]+)/);
+    if (accountIdMatch && accountIdMatch[1]) {
+      updateAccountSettings(accountIdMatch[1]);
     }
+    window.__vwoImpSwitching = true;
+    // Wait for SPA redirect to settle, then update UI once
+    urlChangeTimer = setTimeout(() => {
+      window.__vwoImpSwitching = false;
+      checkCurrentAccountStatus();
+    }, 1200);
+  } else if (!window.__vwoImpSwitching) {
+    urlChangeTimer = setTimeout(() => {
+      showImpersonateStatus();
+      updateImpersonateButtonsVisibility();
+    }, 400);
   }
 });
 
@@ -625,6 +709,7 @@ const urlChangeObserver = new MutationObserver(() => {
 urlChangeObserver.observe(document, { subtree: true, childList: true });
 
 // Function to change the color of the XPath element
+let headerColorObserver = null;
 function changeColorOfheader(accountId) {
   // Get the account IDs from storage
   chrome.storage.local.get(['defaultAccountId', 'originalAccountId', 'currentAccountId'], function(result) {
@@ -646,60 +731,64 @@ function changeColorOfheader(accountId) {
                            currentId !== "undefined" &&
                            defaultId !== "" &&
                            originalId !== "";
-    
-    // Reset header color immediately if we can find it
-    let header = document.querySelector("#main-page .header-main");
-    if (header) {
+
+    function applyHeaderColor() {
+      const header = document.querySelector("#main-page .header-main");
+      if (!header) return false;
       if (isImpersonating) {
         header.style.backgroundColor = '#eeeff1';
       } else {
         header.style.removeProperty('background-color');
       }
+      return true;
     }
-    
-    // Also set up a MutationObserver to handle cases where the header isn't in the DOM yet
-    var observer = new MutationObserver(function(mutationsList, observer) {
-      let header = document.querySelector("#main-page .header-main");
-      if(header){
-        if (isImpersonating) {
-          header.style.backgroundColor = '#eeeff1';
-        } else {
-          header.style.removeProperty('background-color');
-        }
-        observer.disconnect();
+
+    if (applyHeaderColor()) return;
+
+    // Avoid stacking observers across repeated status checks
+    if (headerColorObserver) {
+      headerColorObserver.disconnect();
+      headerColorObserver = null;
+    }
+
+    headerColorObserver = new MutationObserver(function () {
+      if (applyHeaderColor()) {
+        headerColorObserver.disconnect();
+        headerColorObserver = null;
       }
     });
-    observer.observe(document.body, { childList: true, subtree: true });
+    headerColorObserver.observe(document.body, { childList: true, subtree: true });
   });
 }
 
 // Function to show the impersonation status
 function showImpersonateStatus() {
-  hideImpersonationElements();
-  
+  if (window.__vwoImpSwitching) return;
+
   chrome.storage.local.get(['defaultAccountId', 'originalAccountId', 'currentAccountId'], function(result) {
     fetch('/login')
       .then(response => response.json())
       .then(data => {
+        if (window.__vwoImpSwitching) return;
+
         const apiAccountId = String(data.accountId || '');
-        const storedCurrentId = String(result.currentAccountId || '');
         const defaultId = String(result.defaultAccountId || '');
         const originalId = String(result.originalAccountId || '');
 
         const matchesDefault = apiAccountId === defaultId && defaultId !== '';
         const matchesOriginal = apiAccountId === originalId && originalId !== '';
-        
+
+        // Apply visibility once from the latest account — do not hide-then-show
         if (!matchesDefault && !matchesOriginal) {
-          showImpersonationElements();
-          
           const nameElement = document.querySelector('.impersonated-account-name');
           if (nameElement && data.currentAccount) {
             nameElement.innerText = data.currentAccount.name || 'Unknown Account';
           }
+          showImpersonationElements();
         } else {
           hideImpersonationElements();
         }
-        
+
         changeColorOfheader(apiAccountId);
       })
       .catch(err => console.error('Error fetching account details:', err));
@@ -725,11 +814,14 @@ const floatingButtonHTML = `
 `;
 
 document.body.insertAdjacentHTML('beforeend', floatingButtonHTML);
+const vwoDockContainer = document.getElementById('floatingButtonContainer');
+if (vwoDockContainer) vwoDockContainer.style.visibility = 'hidden';
 
 // Vertical drag for the side dock
 (function initDockDrag() {
   const container = document.getElementById('floatingButtonContainer');
   const handle    = document.getElementById('vwoImpTabHandle');
+  if (!container || !handle) return;
 
   // Restore saved position
   safeStorageAccess(() => {
