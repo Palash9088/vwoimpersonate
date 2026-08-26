@@ -1,6 +1,67 @@
 const VWO_ADMIN_BASE = 'https://v2.visualwebsiteoptimizer.com';
 const TOKEN_MAX_AGE_MS = 30 * 60 * 1000;
 
+function isVwoAppTab(url) {
+  if (!url) return false;
+  try {
+    const host = new URL(url).hostname;
+    return (
+      (host === 'app.vwo.com' ||
+        host.endsWith('.vwo.com') ||
+        host === 'app.wingify.com' ||
+        host.endsWith('.wingify.com')) &&
+      !/\/access/i.test(url) &&
+      !host.includes('visualwebsiteoptimizer.com')
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
+function isGlobalModalTab(url) {
+  if (!url) return false;
+  try {
+    return url.startsWith(chrome.runtime.getURL('global-modal.html'));
+  } catch (_) {
+    return false;
+  }
+}
+
+function openGlobalModal(tab) {
+  const modalUrl = new URL(chrome.runtime.getURL('global-modal.html'));
+  if (tab && tab.url && !isGlobalModalTab(tab.url)) {
+    modalUrl.searchParams.set('returnUrl', tab.url);
+  }
+  const href = modalUrl.href;
+  if (tab && tab.id) {
+    if (isGlobalModalTab(tab.url)) return;
+    chrome.tabs.update(tab.id, { url: href });
+    return;
+  }
+  chrome.tabs.create({ url: href });
+}
+
+chrome.commands.onCommand.addListener(async (command) => {
+  if (command !== 'open-vwo-impersonate') return;
+
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab) {
+    openGlobalModal();
+    return;
+  }
+
+  if (isVwoAppTab(tab.url)) {
+    try {
+      await chrome.tabs.sendMessage(tab.id, { action: 'openModal' });
+      return;
+    } catch (_) {
+      // Content script not ready — fall through to global modal
+    }
+  }
+
+  openGlobalModal(tab);
+});
+
 function isLoginPageHtml(html, url) {
   if (!html) return true;
   if (url && /login\.php/i.test(url)) return true;

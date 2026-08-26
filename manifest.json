@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "VWO Impersonate",
-    "version": "1.1",
+    "version": "1.8",
     "description": "VWO Account Impersonate Switcher with Default Account Support",
     "permissions": ["storage", "declarativeContent", "activeTab", "scripting", "tabs"],
     "host_permissions": [
@@ -16,6 +16,15 @@
       "default_popup": "popup.html",
       "default_icon": {
         "128": "icon128.png"
+      }
+    },
+    "commands": {
+      "open-vwo-impersonate": {
+        "suggested_key": {
+          "default": "Ctrl+Shift+E",
+          "mac": "Command+Shift+E"
+        },
+        "description": "Open VWO Impersonate debugger (global)"
       }
     },
     "content_scripts": [

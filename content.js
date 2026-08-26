@@ -1071,6 +1071,14 @@ function initializeModal() {
                   <button id="campaignSubmitButton" class="vwo-btn vwo-btn-green">Go</button>
                 </div>
               </form>
+              <div class="vwo-form">
+                <label class="vwo-label">Open Testapp / V2 Admin</label>
+                <div class="vwo-input-row">
+                  <input type="number" id="testappTaNoInput" placeholder="TA No. (e.g. 8)" class="vwo-input" min="1">
+                  <button type="button" id="openTestappButton" class="vwo-btn vwo-btn-blue">Testapp</button>
+                  <button type="button" id="openV2AdminButton" class="vwo-btn vwo-btn-outline">V2 Admin</button>
+                </div>
+              </div>
               <p id="errorMessage" class="vwo-error-msg"></p>
             </div>
           </div>
@@ -1084,6 +1092,8 @@ function initializeModal() {
           <div class="vwo-login-toolbar">
             <button id="vwoRefreshLogin" class="vwo-btn vwo-btn-blue">↻ Refresh</button>
             <button id="vwoCopyLogin" class="vwo-btn vwo-btn-outline">Copy JSON</button>
+            <input type="text" id="vwoLoginSearch" class="vwo-input vwo-login-search" placeholder="🔍  Search response…" autocomplete="off">
+            <span id="vwoLoginSearchCount" class="vwo-login-search-count"></span>
             <span id="vwoLoginFetchTime" class="vwo-fetch-time"></span>
           </div>
           <pre id="vwoLoginResponse" class="vwo-json-viewer">Loading…</pre>
@@ -1237,6 +1247,8 @@ function initializeModal() {
       background: rgba(15,15,25,0.55);
       backdrop-filter: blur(3px);
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      color-scheme: light;
+      color: #333;
     }
 
     /* Dialog box */
@@ -1254,6 +1266,7 @@ function initializeModal() {
       flex-direction: column;
       box-shadow: 0 24px 64px rgba(0,0,0,0.28);
       overflow: hidden;
+      color-scheme: light;
     }
 
     /* Header */
@@ -1362,7 +1375,10 @@ function initializeModal() {
     .vwo-label { color: #888; font-size: 12px; }
     .vwo-value { font-weight: 600; color: #333; text-align: right; }
 
-    /* Inputs */
+    /* Inputs — force light theme so OS/browser dark mode cannot restyle them */
+    .vwo-modal input.vwo-input,
+    .vwo-modal select.vwo-input,
+    .vwo-modal textarea.vwo-input,
     .vwo-input {
       width: 100%;
       padding: 8px 10px;
@@ -1372,6 +1388,16 @@ function initializeModal() {
       box-sizing: border-box;
       outline: none;
       transition: border-color 0.15s;
+      background-color: #ffffff !important;
+      color: #222222 !important;
+      color-scheme: light;
+      -webkit-text-fill-color: #222222;
+      caret-color: #222222;
+    }
+    .vwo-input::placeholder {
+      color: #999999 !important;
+      -webkit-text-fill-color: #999999;
+      opacity: 1;
     }
     .vwo-input:focus { border-color: #5130C1; box-shadow: 0 0 0 3px rgba(81, 48, 193, 0.12); }
 
@@ -1509,6 +1535,17 @@ function initializeModal() {
       align-items: center;
       gap: 10px;
       margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .vwo-login-search {
+      flex: 1;
+      min-width: 160px;
+      max-width: 280px;
+    }
+    .vwo-login-search-count {
+      font-size: 11px;
+      color: #888;
+      white-space: nowrap;
     }
     .vwo-fetch-time {
       font-size: 11px;
@@ -1528,6 +1565,16 @@ function initializeModal() {
       word-break: break-all;
       margin: 0;
       font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    }
+    .vwo-json-viewer mark {
+      background: #f9e2af;
+      color: #1e1e2e;
+      border-radius: 2px;
+      padding: 0 1px;
+    }
+    .vwo-json-viewer mark.vwo-login-match-active {
+      background: #fab387;
+      outline: 1px solid #fe640b;
     }
 
     /* Converter */
@@ -1851,27 +1898,111 @@ function initializeModal() {
   });
 
   // /login Response tab logic
+  let vwoLoginResponseRaw = '';
+  let vwoLoginMatchIndex = 0;
+
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function updateLoginMatchHighlight(marks, countEl) {
+    if (!marks.length) {
+      countEl.textContent = 'No matches';
+      return;
+    }
+    marks.forEach((m) => m.classList.remove('vwo-login-match-active'));
+    vwoLoginMatchIndex = ((vwoLoginMatchIndex % marks.length) + marks.length) % marks.length;
+    const active = marks[vwoLoginMatchIndex];
+    active.classList.add('vwo-login-match-active');
+    active.scrollIntoView({ block: 'nearest' });
+    countEl.textContent = (vwoLoginMatchIndex + 1) + ' of ' + marks.length;
+  }
+
+  function renderLoginResponse(query, resetIndex) {
+    const pre = document.getElementById('vwoLoginResponse');
+    const countEl = document.getElementById('vwoLoginSearchCount');
+    const q = (query || '').trim();
+
+    if (!vwoLoginResponseRaw) {
+      pre.textContent = 'Loading…';
+      countEl.textContent = '';
+      return;
+    }
+
+    if (!q) {
+      pre.textContent = vwoLoginResponseRaw;
+      countEl.textContent = '';
+      vwoLoginMatchIndex = 0;
+      return;
+    }
+
+    if (resetIndex) vwoLoginMatchIndex = 0;
+
+    const escaped = escapeHtml(vwoLoginResponseRaw);
+    const pattern = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+    let matchCount = 0;
+    const highlighted = escaped.replace(pattern, (match) => {
+      matchCount += 1;
+      return '<mark>' + match + '</mark>';
+    });
+
+    pre.innerHTML = highlighted;
+    const marks = Array.from(pre.querySelectorAll('mark'));
+    updateLoginMatchHighlight(marks, countEl);
+  }
+
+  function cycleLoginMatch(delta) {
+    const pre = document.getElementById('vwoLoginResponse');
+    const countEl = document.getElementById('vwoLoginSearchCount');
+    const marks = Array.from(pre.querySelectorAll('mark'));
+    if (!marks.length) return;
+    vwoLoginMatchIndex += delta;
+    updateLoginMatchHighlight(marks, countEl);
+  }
+
   function fetchAndShowLoginResponse() {
     const pre = document.getElementById('vwoLoginResponse');
     const timeEl = document.getElementById('vwoLoginFetchTime');
+    const searchEl = document.getElementById('vwoLoginSearch');
+    const countEl = document.getElementById('vwoLoginSearchCount');
+    vwoLoginResponseRaw = '';
+    vwoLoginMatchIndex = 0;
     pre.textContent = 'Fetching…';
+    countEl.textContent = '';
     const start = Date.now();
     fetch('/login')
       .then(r => r.json())
       .then(data => {
-        pre.textContent = JSON.stringify(data, null, 2);
+        vwoLoginResponseRaw = JSON.stringify(data, null, 2);
         timeEl.textContent = `Fetched in ${Date.now() - start}ms · ${new Date().toLocaleTimeString()}`;
+        renderLoginResponse(searchEl.value, true);
       })
       .catch(err => {
+        vwoLoginResponseRaw = '';
         pre.textContent = 'Error: ' + err.message;
         timeEl.textContent = '';
+        countEl.textContent = '';
       });
   }
 
   document.getElementById('vwoRefreshLogin').addEventListener('click', fetchAndShowLoginResponse);
 
+  document.getElementById('vwoLoginSearch').addEventListener('input', function () {
+    renderLoginResponse(this.value, true);
+  });
+
+  document.getElementById('vwoLoginSearch').addEventListener('keydown', function (event) {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    cycleLoginMatch(event.shiftKey ? -1 : 1);
+  });
+
   document.getElementById('vwoCopyLogin').addEventListener('click', function () {
-    const text = document.getElementById('vwoLoginResponse').textContent;
+    const text = vwoLoginResponseRaw || document.getElementById('vwoLoginResponse').textContent;
     navigator.clipboard.writeText(text).then(() => {
       this.textContent = 'Copied!';
       setTimeout(() => { this.textContent = 'Copy JSON'; }, 1500);
@@ -1894,6 +2025,43 @@ function initializeModal() {
 
     // Call the function to switch account
     VWoImpLoginData.switchAccount(accountId);
+  });
+
+  function openEnvForTaNo(taNo, kind) {
+    const id = String(taNo || '').trim();
+    const errorEl = document.getElementById('errorMessage');
+    if (!/^\d+$/.test(id)) {
+      if (errorEl) errorEl.textContent = 'Enter a valid TA number (e.g. 8).';
+      return;
+    }
+    if (errorEl) errorEl.textContent = '';
+    chrome.storage.local.set({ lastTaNo: id });
+    const url = kind === 'v2admin'
+      ? `https://vwotestapp${id}-v2admin.vwo.com/login.php#account`
+      : `https://vwotestapp${id}.wingify.com/#/login`;
+    window.open(url, '_blank');
+  }
+
+  document.getElementById('openTestappButton').addEventListener('click', function () {
+    openEnvForTaNo(document.getElementById('testappTaNoInput').value, 'testapp');
+  });
+
+  document.getElementById('openV2AdminButton').addEventListener('click', function () {
+    openEnvForTaNo(document.getElementById('testappTaNoInput').value, 'v2admin');
+  });
+
+  document.getElementById('testappTaNoInput').addEventListener('keydown', function (event) {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      openEnvForTaNo(this.value, event.shiftKey ? 'v2admin' : 'testapp');
+    }
+  });
+
+  chrome.storage.local.get(['lastTaNo'], function (result) {
+    const taInput = document.getElementById('testappTaNoInput');
+    if (taInput && !taInput.value && result.lastTaNo) {
+      taInput.value = result.lastTaNo;
+    }
   });
 
   // Add clipboard paste functionality to accountIdInput
@@ -2143,6 +2311,9 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
     }
     updateImpersonateButtonsVisibility();
     showImpersonateStatus();
+  } else if (message.action === 'openModal') {
+    openModal();
+    sendResponse({ success: true });
   }
 });
 } // end isExtensionContextValid

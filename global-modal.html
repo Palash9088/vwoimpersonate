@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VWO Impersonate Debugger</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: rgba(15,15,25,0.55);
+      color-scheme: light;
+      color: #333;
+    }
+    .vwo-modal {
+      display: block;
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+      backdrop-filter: blur(3px);
+    }
+    .vwo-modal-body {
+      background: #fff;
+      border-radius: 12px;
+      width: 860px;
+      max-width: calc(100vw - 32px);
+      max-height: 88vh;
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 24px 64px rgba(0,0,0,0.28);
+      overflow: hidden;
+    }
+    .vwo-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 20px;
+      background: linear-gradient(135deg, #372183, #5130C1);
+      color: #fff;
+      flex-shrink: 0;
+    }
+    .vwo-modal-title {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .vwo-close {
+      background: rgba(255,255,255,0.15);
+      border: none;
+      color: #fff;
+      font-size: 20px;
+      line-height: 1;
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .vwo-close:hover { background: rgba(255,255,255,0.28); }
+    .vwo-tabs {
+      display: flex;
+      background: #f6f6f8;
+      border-bottom: 1px solid #e0e0e8;
+      flex-shrink: 0;
+    }
+    .vwo-tablink {
+      flex: 1;
+      background: none;
+      border: none;
+      border-bottom: 3px solid transparent;
+      padding: 10px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      color: #666;
+      cursor: pointer;
+    }
+    .vwo-tablink.active {
+      color: #5130C1;
+      border-bottom-color: #5130C1;
+      background: #fff;
+    }
+    .vwo-modal-content {
+      padding: 20px;
+      overflow: auto;
+      flex: 1;
+    }
+    .vwo-tab-content { display: none; }
+    .vwo-tab-content.active { display: block; }
+    .vwo-two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    @media (max-width: 720px) {
+      .vwo-two-col { grid-template-columns: 1fr; }
+    }
+    .vwo-panel-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #333;
+      margin-bottom: 10px;
+    }
+    .vwo-label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: #666;
+      margin-bottom: 6px;
+    }
+    .vwo-form { margin-top: 12px; }
+    .vwo-input-row {
+      display: flex;
+      gap: 8px;
+    }
+    .vwo-input {
+      flex: 1;
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #d0d0dc;
+      border-radius: 6px;
+      font-size: 13px;
+      background-color: #ffffff !important;
+      color: #222222 !important;
+      color-scheme: light;
+      -webkit-text-fill-color: #222222;
+      caret-color: #222222;
+    }
+    .vwo-input::placeholder {
+      color: #999999 !important;
+      -webkit-text-fill-color: #999999;
+      opacity: 1;
+    }
+    .vwo-input:focus {
+      outline: none;
+      border-color: #5130C1;
+      box-shadow: 0 0 0 2px rgba(81,48,193,0.15);
+    }
+    .vwo-btn {
+      border: none;
+      border-radius: 6px;
+      padding: 8px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .vwo-btn-blue { background: #2196F3; color: #fff; }
+    .vwo-btn-outline {
+      background: #fff;
+      color: #555;
+      border: 1px solid #ccc;
+    }
+    .vwo-error-msg {
+      color: #f44336;
+      font-size: 12px;
+      min-height: 16px;
+      margin-top: 8px;
+    }
+    .vwo-preview {
+      margin-top: 8px;
+      font-size: 11px;
+      color: #888;
+      word-break: break-all;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .vwo-note {
+      background: #fff8e1;
+      border-left: 4px solid #ffc107;
+      padding: 10px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #5d4037;
+      margin-bottom: 14px;
+    }
+    .vwo-muted {
+      color: #888;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .vwo-modal-credit {
+      text-align: center;
+      font-size: 11px;
+      color: #999;
+      padding: 10px;
+      border-top: 1px solid #eee;
+    }
+  </style>
+</head>
+<body>
+  <div id="vwoImpersonateDebugger" class="vwo-modal">
+    <div class="vwo-modal-body">
+      <div class="vwo-modal-header">
+        <div class="vwo-modal-title">
+          <span>🔧</span>
+          <span>VWO Impersonate Debugger</span>
+        </div>
+        <button class="vwo-close" id="closeBtn" title="Close (Esc)">&times;</button>
+      </div>
+      <div class="vwo-tabs">
+        <button class="vwo-tablink active" data-tab="debugger">Debugger</button>
+        <button class="vwo-tablink" data-tab="other">Other tools</button>
+      </div>
+      <div class="vwo-modal-content">
+        <div id="debugger-tab" class="vwo-tab-content active">
+          <div class="vwo-note">
+            Shortcut opened outside a VWO page. Open Testapp / V2 Admin works here; full debugger tools are available on app / testapp pages.
+          </div>
+          <div class="vwo-two-col">
+            <div>
+              <div class="vwo-panel-title">Quick Navigation</div>
+              <div class="vwo-form" style="margin-top:0">
+                <label class="vwo-label" for="taNoInput">Open Testapp / V2 Admin</label>
+                <div class="vwo-input-row">
+                  <input type="number" id="taNoInput" class="vwo-input" placeholder="TA No. (e.g. 8)" min="1" autofocus>
+                  <button type="button" id="openTestappButton" class="vwo-btn vwo-btn-blue">Testapp</button>
+                  <button type="button" id="openV2AdminButton" class="vwo-btn vwo-btn-outline">V2 Admin</button>
+                </div>
+                <div id="taPreview" class="vwo-preview">https://vwotestapp{taNo}.wingify.com/#/login</div>
+                <div id="v2Preview" class="vwo-preview">https://vwotestapp{taNo}-v2admin.vwo.com/login.php#account</div>
+                <p id="errorMessage" class="vwo-error-msg"></p>
+              </div>
+            </div>
+            <div>
+              <div class="vwo-panel-title">Tip</div>
+              <p class="vwo-muted">
+                Enter the testapp number only. Example: <strong>8</strong> opens
+                <code>https://vwotestapp8.wingify.com/#/login</code> or
+                <code>https://vwotestapp8-v2admin.vwo.com/login.php#account</code>.
+              </p>
+            </div>
+          </div>
+        </div>
+        <div id="other-tab" class="vwo-tab-content">
+          <p class="vwo-muted">
+            /login Response, IP &amp; Timezone, Converter, and Grant Access work on VWO app or testapp tabs.
+            Open any VWO page and press <strong>⌘⇧E</strong> / <strong>Ctrl⇧E</strong> for the full modal.
+          </p>
+          <button type="button" id="openAppBtn" class="vwo-btn vwo-btn-outline">Open app.vwo.com</button>
+        </div>
+      </div>
+      <div class="vwo-modal-credit">Developed with ❤️ at <strong>Wingify / VWO</strong></div>
+    </div>
+  </div>
+  <script src="global-modal.js"></script>
+</body>
+</html>
