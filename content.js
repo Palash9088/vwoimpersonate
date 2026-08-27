@@ -1,12 +1,12 @@
 // Returns the base URL of the current domain (works on *.vwo.com and *.wingify.com)
-// e.g. https://app.wingify.com/ or https://vwotestapp12.vwo.com/
+// e.g. https://app.wingify.com/ or https://vwotestapp12.wingify.com/
+// Must use location.origin — hash-router URLs are "...com/#/..." (no ".com/") so
+// string-slicing on ".com/" incorrectly falls back to app.vwo.com.
 function getVwoBaseUrl() {
-  const href = window.location.href;
-  const dotComIdx = href.indexOf('.com/');
-  if (dotComIdx !== -1) {
-    return href.substring(0, dotComIdx + 5); // include ".com/"
+  if (window.location && window.location.origin && window.location.origin !== 'null') {
+    return `${window.location.origin}/`;
   }
-  return 'https://app.vwo.com/'; // fallback
+  return 'https://app.vwo.com/';
 }
 
 // Returns the auth base URL for logout/SSO — always uses the main app domain,
@@ -195,10 +195,9 @@ let VWoImpLoginData = {
       document.body.removeChild(errorMessage);
     });
   },
-  // Function to switch the account without a full document reload (avoids LOADING WINGIFY flash).
-  // Root cause of flicker was window.location → /access (full navigation). Instead:
-  // 1) fetch /access to establish the impersonation session (cookies)
-  // 2) soft-navigate via hash so the SPA updates in place
+  // Impersonation must be a top-level /access navigation so the server can set the
+  // session cookie. Soft fetch+hash (used briefly to avoid loader flash) breaks on
+  // app.wingify.com / app.vwo.com because the SPA keeps the old in-memory session.
   switchAccount: function (accountId) {
     const id = String(accountId || '').trim();
     if (!id) return;
@@ -210,47 +209,8 @@ let VWoImpLoginData = {
       try { closeModal(); } catch (_) {}
     }
 
-    const base = getVwoBaseUrl();
-    const accessUrl = `${base}access?accountId=${encodeURIComponent(id)}`;
-
-    const finishSoftNav = () => {
-      const nextHash = `#/dashboard?accountId=${encodeURIComponent(id)}`;
-      if (window.location.hash === nextHash) {
-        // Force SPA to re-read account if hash is unchanged
-        window.dispatchEvent(new HashChangeEvent('hashchange'));
-      } else {
-        window.location.hash = nextHash;
-      }
-      // Give the SPA a moment, then refresh impersonation UI once
-      setTimeout(() => {
-        window.__vwoImpSwitching = false;
-        checkCurrentAccountStatus();
-      }, 800);
-    };
-
-    const hardFallback = () => {
-      window.location.assign(accessUrl);
-    };
-
-    fetch(accessUrl, {
-      method: 'GET',
-      credentials: 'include',
-      redirect: 'follow',
-      headers: { Accept: 'text/html,application/xhtml+xml,*/*' },
-      cache: 'no-store'
-    })
-      .then((response) => {
-        // Session should be switched; soft-nav even on non-OK if cookies were set via redirect chain
-        if (response.type === 'opaqueredirect') {
-          hardFallback();
-          return;
-        }
-        finishSoftNav();
-      })
-      .catch(() => {
-        // If fetch cannot complete the access handshake, fall back to full navigation
-        hardFallback();
-      });
+    const accessUrl = `${getVwoBaseUrl()}access?accountId=${encodeURIComponent(id)}`;
+    window.location.assign(accessUrl);
   },
   impersonateDefaultAccount: function() {
     chrome.storage.local.get(['defaultAccountId'], function(result) {

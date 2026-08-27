@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "VWO Impersonate",
-    "version": "1.11",
+    "version": "1.12",
     "description": "VWO Account Impersonate Switcher with Default Account Support",
     "permissions": ["storage", "declarativeContent", "activeTab", "scripting", "tabs"],
     "host_permissions": [
