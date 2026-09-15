@@ -602,14 +602,81 @@ initializeModal();
 // checkCurrentAccountStatus(); // This is now called by initializeUI
 
 // Auto-refresh testapp / visualwebsiteoptimizer URLs every 15 minutes.
-// If the user is on the tab, ask first; if the tab is in the background, refresh immediately.
+// Background tab → refresh immediately.
+// Visible tab → ask; if no response for 30s, refresh automatically.
 let testappRefreshInterval = null;
+let refreshPromptTimer = null;
+
+function dismissRefreshPrompt() {
+  if (refreshPromptTimer) {
+    clearInterval(refreshPromptTimer);
+    refreshPromptTimer = null;
+  }
+  const el = document.getElementById('vwo-refresh-prompt');
+  if (el) el.remove();
+}
+
+function showRefreshPrompt() {
+  if (document.getElementById('vwo-refresh-prompt')) return;
+
+  let remaining = 30;
+  const banner = document.createElement('div');
+  banner.id = 'vwo-refresh-prompt';
+  banner.style.cssText = [
+    'position:fixed',
+    'top:16px',
+    'left:50%',
+    'transform:translateX(-50%)',
+    'z-index:2147483646',
+    'display:flex',
+    'align-items:center',
+    'gap:12px',
+    'padding:12px 16px',
+    'background:#1e1e2e',
+    'color:#cdd6f4',
+    'border-radius:10px',
+    'box-shadow:0 8px 28px rgba(0,0,0,.28)',
+    'font:13px/1.4 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif'
+  ].join(';');
+
+  const text = document.createElement('span');
+  text.textContent = 'Page refresh due. Refreshing in 30s…';
+
+  const refreshBtn = document.createElement('button');
+  refreshBtn.textContent = 'Refresh now';
+  refreshBtn.style.cssText = 'border:none;border-radius:6px;padding:7px 12px;background:#2196F3;color:#fff;font-weight:600;cursor:pointer';
+
+  const laterBtn = document.createElement('button');
+  laterBtn.textContent = 'Later';
+  laterBtn.style.cssText = 'border:1px solid #555;border-radius:6px;padding:7px 12px;background:transparent;color:#cdd6f4;cursor:pointer';
+
+  refreshBtn.addEventListener('click', () => {
+    dismissRefreshPrompt();
+    location.reload();
+  });
+  laterBtn.addEventListener('click', () => {
+    dismissRefreshPrompt();
+  });
+
+  banner.appendChild(text);
+  banner.appendChild(refreshBtn);
+  banner.appendChild(laterBtn);
+  document.documentElement.appendChild(banner);
+
+  refreshPromptTimer = setInterval(() => {
+    remaining -= 1;
+    if (remaining <= 0) {
+      dismissRefreshPrompt();
+      location.reload();
+      return;
+    }
+    text.textContent = `Page refresh due. Refreshing in ${remaining}s…`;
+  }, 1000);
+}
 
 function refreshPageIfAllowed() {
   if (document.visibilityState === 'visible') {
-    if (window.confirm('This page is due for a refresh. Refresh now?')) {
-      location.reload();
-    }
+    showRefreshPrompt();
     return;
   }
   location.reload();
