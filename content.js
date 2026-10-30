@@ -949,7 +949,9 @@ const floatingButtonCSS = `
   display: flex;
   flex-direction: row-reverse;
   align-items: center;
-  pointer-events: auto;
+  /* Only the tab / open panel should capture clicks — not the closed panel's layout box */
+  pointer-events: none;
+  position: relative;
 }
 
 #vwoImpTabHandle {
@@ -967,6 +969,9 @@ const floatingButtonCSS = `
   border-radius: 8px 0 0 8px;
   box-shadow: -2px 0 8px rgba(0, 0, 0, 0.2);
   user-select: none;
+  pointer-events: auto;
+  position: relative;
+  z-index: 2;
 }
 
 #vwoImpTabLabel {
@@ -995,16 +1000,22 @@ const floatingButtonCSS = `
   background: rgba(55, 33, 131, 0.97);
   border-radius: 8px 0 0 8px;
   box-shadow: -4px 0 16px rgba(0, 0, 0, 0.25);
-  transform: translateX(100%);
+  /* Keep out of document flow so a closed panel does not block page clicks */
+  position: absolute;
+  right: 100%;
+  top: 50%;
+  transform: translate(12px, -50%);
   opacity: 0;
-  transition: transform 0.2s ease, opacity 0.2s ease;
+  visibility: hidden;
+  transition: transform 0.2s ease, opacity 0.2s ease, visibility 0.2s;
   pointer-events: none;
   min-width: 170px;
 }
 
 #vwoImpSideDock.vwo-open #vwoImpPanel {
-  transform: translateX(0);
+  transform: translate(0, -50%);
   opacity: 1;
+  visibility: visible;
   pointer-events: auto;
 }
 
@@ -1340,6 +1351,13 @@ function initializeModal() {
                 <div class="vwo-form">
                   <label class="vwo-label" for="grantReason">Reason</label>
                   <input type="text" id="grantReason" class="vwo-input" placeholder="e.g. QF-20123" required>
+                </div>
+                <div class="vwo-form vwo-grant-impersonate-opt">
+                  <label class="vwo-checkbox-label" for="grantAlsoImpersonate">
+                    <input type="checkbox" id="grantAlsoImpersonate">
+                    <span>Also impersonate this account after granting</span>
+                  </label>
+                  <p class="vwo-grant-impersonate-hint">Opens /access for this Account ID on success.</p>
                 </div>
                 <button type="submit" id="grantAccessBtn" class="vwo-btn vwo-btn-green" style="width:100%">Grant Permission</button>
               </form>
@@ -1753,6 +1771,36 @@ function initializeModal() {
     .vwo-grant-result { margin-top: 12px; max-height: 180px; }
     .vwo-grant-login-gate .vwo-grant-actions { margin-bottom: 12px; }
     .vwo-grant-login-gate .vwo-btn { width: auto; }
+    .vwo-grant-impersonate-opt {
+      margin-top: 16px;
+      padding: 12px 14px;
+      background: #F6F5FC;
+      border: 1px solid #e4e0f5;
+      border-radius: 8px;
+    }
+    .vwo-checkbox-label {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #333;
+      cursor: pointer;
+      margin: 0;
+    }
+    .vwo-checkbox-label input {
+      margin-top: 2px;
+      width: 16px;
+      height: 16px;
+      accent-color: #5130C1;
+      flex-shrink: 0;
+    }
+    .vwo-grant-impersonate-hint {
+      margin: 6px 0 0 26px;
+      font-size: 11px;
+      color: #888;
+      line-height: 1.4;
+    }
 
     /* Account Verify tab */
     .vwo-verify-actions {
@@ -2293,6 +2341,7 @@ function initializeModal() {
     const errorEl = document.getElementById('grantAccessError');
     const resultEl = document.getElementById('grantAccessResult');
     const submitBtn = document.getElementById('grantAccessBtn');
+    const alsoImpersonateEl = document.getElementById('grantAlsoImpersonate');
     errorEl.textContent = '';
     resultEl.style.display = 'none';
 
@@ -2301,7 +2350,14 @@ function initializeModal() {
     const userId = document.getElementById('grantUserId').value.trim();
     const permissionId = document.getElementById('grantPermissionId').value.trim() || '0';
     const reason = document.getElementById('grantReason').value.trim();
+    const alsoImpersonate = !!(alsoImpersonateEl && alsoImpersonateEl.checked);
     const validity = '14';
+
+    function grantButtonLabel() {
+      return alsoImpersonateEl && alsoImpersonateEl.checked
+        ? 'Grant Permission & Impersonate'
+        : 'Grant Permission';
+    }
 
     if (!impersonatorEmailId || !accountId || !reason) {
       errorEl.textContent = 'Please fill in Impersonator Email ID, Account ID, and Reason.';
@@ -2314,7 +2370,7 @@ function initializeModal() {
     }
 
     submitBtn.disabled = true;
-    submitBtn.textContent = 'Granting…';
+    submitBtn.textContent = alsoImpersonate ? 'Granting & impersonating…' : 'Granting…';
 
     chrome.runtime.sendMessage({
       action: 'grantImpersonationPermission',
@@ -2328,7 +2384,7 @@ function initializeModal() {
       }
     }, function (response) {
       submitBtn.disabled = false;
-      submitBtn.textContent = 'Grant Permission';
+      submitBtn.textContent = grantButtonLabel();
 
       if (chrome.runtime.lastError) {
         errorEl.textContent = 'Extension error: ' + chrome.runtime.lastError.message;
@@ -2344,21 +2400,41 @@ function initializeModal() {
       const { result } = response;
       resultEl.style.display = 'block';
 
+      let grantFailed = false;
       if (result.parsed) {
         resultEl.textContent = JSON.stringify(result.parsed, null, 2);
         if (result.parsed.success === false || result.parsed.error) {
+          grantFailed = true;
           errorEl.textContent = result.parsed.error || result.parsed.message || 'Grant request returned an error.';
         }
       } else {
         resultEl.textContent = result.text || '(empty response)';
         if (!result.ok) {
+          grantFailed = true;
           errorEl.textContent = 'Request failed with HTTP ' + result.status;
         }
       }
 
       initGrantAccessTab(true);
+
+      if (!grantFailed && alsoImpersonate) {
+        submitBtn.textContent = 'Opening impersonation…';
+        VWoImpLoginData.switchAccount(accountId);
+      }
     });
   });
+
+  const grantAlsoImpersonate = document.getElementById('grantAlsoImpersonate');
+  const grantAccessBtn = document.getElementById('grantAccessBtn');
+  if (grantAlsoImpersonate && grantAccessBtn) {
+    const syncGrantBtnLabel = () => {
+      grantAccessBtn.textContent = grantAlsoImpersonate.checked
+        ? 'Grant Permission & Impersonate'
+        : 'Grant Permission';
+    };
+    grantAlsoImpersonate.addEventListener('change', syncGrantBtnLabel);
+    syncGrantBtnLabel();
+  }
 }
 
 function convertToUTC() {
