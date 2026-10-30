@@ -832,6 +832,13 @@ const floatingButtonHTML = `
     </div>
     <div id="vwoImpPanel">
       <button id="floatingButton">Debugger (⌘⇧E)</button>
+      <div class="vwo-dock-quick-nav" id="vwoDockQuickNav">
+        <div class="vwo-dock-quick-title">Quick links</div>
+        <button type="button" class="vwo-dock-quick-btn" data-quick="1" id="vwoQuickIntegrations" title="Open Integrations">
+          <span class="vwo-dock-num">1</span>
+          <span>Integrations</span>
+        </button>
+      </div>
       <div id="floatingImpersonatedDisplay" class="floatingImpersonatedDisplayBar hide">
         <p>Impersonated</p>
       </div>
@@ -1041,6 +1048,57 @@ const floatingButtonCSS = `
 
 #floatingButton:hover {
   background-color: #0056b3;
+}
+
+.vwo-dock-quick-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.vwo-dock-quick-title {
+  color: rgba(255,255,255,0.65);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  padding: 0 2px;
+}
+
+.vwo-dock-quick-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 4px;
+  padding: 7px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0;
+  text-align: left;
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+}
+
+.vwo-dock-quick-btn:hover {
+  background: rgba(255,255,255,0.16);
+}
+
+.vwo-dock-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  background: #fff;
+  color: #372183;
+  font-size: 11px;
+  font-weight: 800;
 }
 
 #vwoExitImpersonateBtn {
@@ -2488,11 +2546,70 @@ function formatDateTime(date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
+function getCurrentAccountIdFromPage() {
+  const hashMatch = (window.location.hash || '').match(/accountId=([0-9]+)/);
+  if (hashMatch) return hashMatch[1];
+  const searchMatch = (window.location.search || '').match(/accountId=([0-9]+)/);
+  if (searchMatch) return searchMatch[1];
+  return String(VWoImpLoginData.currentAccountId || '').trim();
+}
+
+function openIntegrationsForCurrentAccount() {
+  const resolveAndGo = (accountId) => {
+    const id = String(accountId || '').trim();
+    if (!/^\d+$/.test(id)) {
+      console.warn('VWO Impersonate: no account ID available for Integrations');
+      return;
+    }
+    if (typeof closeModal === 'function') {
+      try { closeModal(); } catch (_) {}
+    }
+    const dock = document.getElementById('vwoImpSideDock');
+    if (dock) dock.classList.remove('vwo-open');
+    const url = `${getVwoBaseUrl()}#/configuration/integrations?accountId=${encodeURIComponent(id)}`;
+    window.location.href = url;
+  };
+
+  const fromPage = getCurrentAccountIdFromPage();
+  if (fromPage) {
+    resolveAndGo(fromPage);
+    return;
+  }
+
+  safeStorageAccess(() => {
+    chrome.storage.local.get(['currentAccountId'], function (result) {
+      resolveAndGo(result.currentAccountId);
+    });
+  });
+}
+
+function openSideDock() {
+  const dock = document.getElementById('vwoImpSideDock');
+  if (dock) dock.classList.add('vwo-open');
+}
+
+function runDockQuickAction(key) {
+  if (String(key) === '1') {
+    openIntegrationsForCurrentAccount();
+    return true;
+  }
+  return false;
+}
+
 // Add click event listener to the floating button
 document.getElementById('floatingButton').addEventListener('click', function () {
   // Open the modal
   openModal();
 });
+
+const vwoQuickIntegrations = document.getElementById('vwoQuickIntegrations');
+if (vwoQuickIntegrations) {
+  vwoQuickIntegrations.addEventListener('click', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    openIntegrationsForCurrentAccount();
+  });
+}
 
 // Function to handle messages from the background script
 if (isExtensionContextValid()) {
@@ -2508,6 +2625,7 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
     showImpersonateStatus();
   } else if (message.action === 'openModal') {
     openModal();
+    openSideDock();
     sendResponse({ success: true });
   }
 });
@@ -2518,10 +2636,23 @@ document.addEventListener('keydown', function (event) {
   if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key === 'e') {
     // Perform the desired action when the shortcut is triggered
     openModal();
-    // Add your code to execute the desired action here
+    openSideDock();
   } else if (event.altKey && event.key === 'd') {
     event.preventDefault();
     VWoImpLoginData.impersonateDefaultAccount();
+  } else if (!event.ctrlKey && !event.metaKey && !event.altKey) {
+    // Number shortcuts while dock/modal is available (skip when typing in inputs)
+    const tag = (event.target && event.target.tagName) ? event.target.tagName.toLowerCase() : '';
+    if (tag === 'input' || tag === 'textarea' || tag === 'select' || event.target.isContentEditable) {
+      return;
+    }
+    const dock = document.getElementById('vwoImpSideDock');
+    const modal = document.getElementById('vwoImpersonateDebugger');
+    const dockOpen = dock && dock.classList.contains('vwo-open');
+    const modalOpen = modal && modal.style.display === 'block';
+    if ((dockOpen || modalOpen) && runDockQuickAction(event.key)) {
+      event.preventDefault();
+    }
   }
 });
 
