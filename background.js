@@ -283,7 +283,81 @@ async function grantImpersonationPermission(data) {
   };
 }
 
+const VWO_CACHE_ORIGINS = [
+  'https://app.vwo.com',
+  'https://app.wingify.com',
+  'https://v2.visualwebsiteoptimizer.com'
+];
+
+function isVwoFamilyHost(hostname) {
+  if (!hostname) return false;
+  return (
+    hostname === 'app.vwo.com' ||
+    hostname.endsWith('.vwo.com') ||
+    hostname === 'app.wingify.com' ||
+    hostname.endsWith('.wingify.com') ||
+    hostname === 'v2.visualwebsiteoptimizer.com' ||
+    hostname.endsWith('.visualwebsiteoptimizer.com')
+  );
+}
+
+async function collectVwoOrigins(extraOrigins) {
+  const origins = new Set(VWO_CACHE_ORIGINS);
+  (extraOrigins || []).forEach((origin) => {
+    if (origin) origins.add(origin);
+  });
+
+  try {
+    const tabs = await chrome.tabs.query({});
+    for (const tab of tabs) {
+      if (!tab.url) continue;
+      try {
+        const url = new URL(tab.url);
+        if (isVwoFamilyHost(url.hostname)) origins.add(url.origin);
+      } catch (_) {}
+    }
+  } catch (_) {}
+
+  return [...origins];
+}
+
+async function clearVwoCaches(extraOrigins) {
+  const origins = await collectVwoOrigins(extraOrigins);
+  const dataToRemove = {
+    appcache: true,
+    cache: true,
+    cacheStorage: true,
+    fileSystems: true,
+    indexedDB: true,
+    localStorage: true,
+    serviceWorkers: true,
+    webSQL: true
+  };
+
+  // Origin-scoped site data + HTTP cache for VWO hosts
+  await chrome.browsingData.remove({ origins }, dataToRemove);
+
+  // Also clear the shared HTTP disk cache so host switches don't keep stale responses
+  await chrome.browsingData.removeCache({});
+
+  return { success: true, origins };
+}
+
 chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
+  if (request.action === 'clearVwoCaches') {
+    const extra = [];
+    if (request.origin) extra.push(request.origin);
+    if (sender.tab && sender.tab.url) {
+      try {
+        extra.push(new URL(sender.tab.url).origin);
+      } catch (_) {}
+    }
+    clearVwoCaches(extra)
+      .then((result) => sendResponse(result))
+      .catch((error) => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
   if (request.action === 'executeScript') {
     chrome.scripting.executeScript({
       target: { tabId: sender.tab.id },

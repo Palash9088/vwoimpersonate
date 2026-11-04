@@ -838,6 +838,10 @@ const floatingButtonHTML = `
           <span class="vwo-dock-num">1</span>
           <span>Integrations</span>
         </button>
+        <button type="button" class="vwo-dock-quick-btn" data-quick="2" id="vwoQuickClearCaches" title="Clear VWO/Wingify caches and reload">
+          <span class="vwo-dock-num">2</span>
+          <span>Clear caches</span>
+        </button>
       </div>
       <div id="floatingImpersonatedDisplay" class="floatingImpersonatedDisplayBar hide">
         <p>Impersonated</p>
@@ -2588,9 +2592,99 @@ function openSideDock() {
   if (dock) dock.classList.add('vwo-open');
 }
 
+function showCacheClearToast(message) {
+  let toast = document.getElementById('vwoCacheClearToast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'vwoCacheClearToast';
+    toast.style.cssText = [
+      'position:fixed',
+      'top:16px',
+      'left:50%',
+      'transform:translateX(-50%)',
+      'z-index:2147483647',
+      'background:#1b1038',
+      'color:#fff',
+      'padding:10px 16px',
+      'border-radius:8px',
+      'font:600 13px/1.3 system-ui,sans-serif',
+      'box-shadow:0 8px 24px rgba(0,0,0,.28)',
+      'pointer-events:none'
+    ].join(';');
+    document.body.appendChild(toast);
+  }
+  toast.textContent = message;
+}
+
+async function clearPageCachesLocally() {
+  try { localStorage.clear(); } catch (_) {}
+  try { sessionStorage.clear(); } catch (_) {}
+
+  try {
+    if (window.caches && caches.keys) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((key) => caches.delete(key)));
+    }
+  } catch (_) {}
+
+  try {
+    if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((reg) => reg.unregister()));
+    }
+  } catch (_) {}
+}
+
+function clearVwoCachesAndReload() {
+  if (typeof closeModal === 'function') {
+    try { closeModal(); } catch (_) {}
+  }
+  const dock = document.getElementById('vwoImpSideDock');
+  if (dock) dock.classList.remove('vwo-open');
+
+  showCacheClearToast('Clearing VWO caches…');
+
+  const finishReload = () => {
+    showCacheClearToast('Caches cleared — reloading…');
+    const url = new URL(window.location.href);
+    url.searchParams.set('_vwo_cache_bust', String(Date.now()));
+    window.location.replace(url.toString());
+  };
+
+  clearPageCachesLocally()
+    .catch(() => {})
+    .then(() => new Promise((resolve) => {
+      if (!isExtensionContextValid()) {
+        resolve({ success: false, error: 'Extension context invalid' });
+        return;
+      }
+      chrome.runtime.sendMessage(
+        { action: 'clearVwoCaches', origin: window.location.origin },
+        (response) => {
+          if (chrome.runtime.lastError) {
+            resolve({ success: false, error: chrome.runtime.lastError.message });
+            return;
+          }
+          resolve(response || { success: false, error: 'No response' });
+        }
+      );
+    }))
+    .then((result) => {
+      if (!result || !result.success) {
+        console.warn('VWO Impersonate: cache clear failed', result && result.error);
+        showCacheClearToast('Cache clear failed — reloading anyway…');
+      }
+      setTimeout(finishReload, 250);
+    });
+}
+
 function runDockQuickAction(key) {
   if (String(key) === '1') {
     openIntegrationsForCurrentAccount();
+    return true;
+  }
+  if (String(key) === '2') {
+    clearVwoCachesAndReload();
     return true;
   }
   return false;
@@ -2608,6 +2702,15 @@ if (vwoQuickIntegrations) {
     e.preventDefault();
     e.stopPropagation();
     openIntegrationsForCurrentAccount();
+  });
+}
+
+const vwoQuickClearCaches = document.getElementById('vwoQuickClearCaches');
+if (vwoQuickClearCaches) {
+  vwoQuickClearCaches.addEventListener('click', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    clearVwoCachesAndReload();
   });
 }
 

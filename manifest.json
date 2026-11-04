@@ -1,9 +1,9 @@
 {
     "manifest_version": 3,
     "name": "VWO Impersonate",
-    "version": "1.18",
+    "version": "1.20",
     "description": "VWO Account Impersonate Switcher with Default Account Support",
-    "permissions": ["storage", "declarativeContent", "activeTab", "scripting", "tabs"],
+    "permissions": ["storage", "declarativeContent", "activeTab", "scripting", "tabs", "browsingData"],
     "host_permissions": [
         "https://app.vwo.com/*",
         "https://*.vwo.com/*",
