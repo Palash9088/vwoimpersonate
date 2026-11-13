@@ -38,33 +38,35 @@ document.addEventListener('DOMContentLoaded', function() {
           if (tab && tab.url) origin = new URL(tab.url).origin;
         } catch (_) {}
 
+        const reloadTabId = (tab && tab.id && isVwoFamilyUrl(tab.url)) ? tab.id : null;
+
         chrome.runtime.sendMessage(
-          { action: 'clearVwoCaches', origin },
+          {
+            action: 'clearVwoCaches',
+            origin,
+            reloadTabId,
+            reload: !!reloadTabId
+          },
           function (response) {
+            clearCacheButton.disabled = false;
+
             if (chrome.runtime.lastError) {
               cacheStatusMessage.textContent = 'Failed: ' + chrome.runtime.lastError.message;
               cacheStatusMessage.className = 'error-message';
-              clearCacheButton.disabled = false;
               return;
             }
 
             if (!response || !response.success) {
               cacheStatusMessage.textContent = 'Failed: ' + ((response && response.error) || 'unknown error');
               cacheStatusMessage.className = 'error-message';
-              clearCacheButton.disabled = false;
               return;
             }
 
-            cacheStatusMessage.textContent = 'Caches cleared.';
+            const count = (response.origins && response.origins.length) || 0;
+            cacheStatusMessage.textContent = response.reloaded
+              ? `Caches cleared (${count} origins). Tab reloaded.`
+              : `Caches cleared (${count} origins).`;
             cacheStatusMessage.className = 'success-message';
-
-            if (tab && tab.id && isVwoFamilyUrl(tab.url)) {
-              chrome.tabs.reload(tab.id, { bypassCache: true }, function () {
-                clearCacheButton.disabled = false;
-              });
-            } else {
-              clearCacheButton.disabled = false;
-            }
           }
         );
       });

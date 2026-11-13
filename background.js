@@ -321,26 +321,97 @@ async function collectVwoOrigins(extraOrigins) {
   return [...origins];
 }
 
-async function clearVwoCaches(extraOrigins) {
-  const origins = await collectVwoOrigins(extraOrigins);
-  const dataToRemove = {
-    appcache: true,
-    cache: true,
+async function clearOriginSiteData(origins) {
+  const siteData = {
     cacheStorage: true,
+    cookies: true,
     fileSystems: true,
     indexedDB: true,
     localStorage: true,
-    serviceWorkers: true,
-    webSQL: true
+    serviceWorkers: true
   };
+  const errors = [];
 
-  // Origin-scoped site data + HTTP cache for VWO hosts
-  await chrome.browsingData.remove({ origins }, dataToRemove);
+  // Origin filter only supports cookies/storage/cache — do not mix unsupported types
+  try {
+    await chrome.browsingData.remove({ origins }, siteData);
+  } catch (error) {
+    errors.push(error.message || String(error));
+    for (const origin of origins) {
+      try {
+        await chrome.browsingData.remove({ origins: [origin] }, siteData);
+      } catch (originError) {
+        errors.push(`${origin}: ${originError.message || originError}`);
+      }
+    }
+  }
 
-  // Also clear the shared HTTP disk cache so host switches don't keep stale responses
-  await chrome.browsingData.removeCache({});
+  // Origin-scoped HTTP cache (supported for cookies/storage/cache family)
+  try {
+    await chrome.browsingData.remove({ origins }, { cache: true });
+  } catch (error) {
+    errors.push(`origin-cache: ${error.message || error}`);
+  }
 
-  return { success: true, origins };
+  return errors;
+}
+
+async function clearVwoCaches(extraOrigins) {
+  const origins = await collectVwoOrigins(extraOrigins);
+  const errors = await clearOriginSiteData(origins);
+
+  // Shared disk cache — needed after host switches; origins filter is incomplete alone
+  try {
+    await chrome.browsingData.removeCache({});
+  } catch (error) {
+    errors.push(`disk-cache: ${error.message || error}`);
+  }
+
+  return {
+    success: errors.length === 0,
+    origins,
+    error: errors.length ? errors.join('; ') : undefined,
+    errors
+  };
+}
+
+async function reloadTabBypassCache(tabId) {
+  if (!tabId) return false;
+  try {
+    await chrome.tabs.reload(tabId, { bypassCache: true });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+async function clearPageStorageInTab(tabId) {
+  if (!tabId) return;
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        try { localStorage.clear(); } catch (_) {}
+        try { sessionStorage.clear(); } catch (_) {}
+        const tasks = [];
+        try {
+          if (window.caches && caches.keys) {
+            tasks.push(caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k)))));
+          }
+        } catch (_) {}
+        try {
+          if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+            tasks.push(
+              navigator.serviceWorker.getRegistrations().then((regs) =>
+                Promise.all(regs.map((reg) => reg.unregister()))
+              )
+            );
+          }
+        } catch (_) {}
+        return Promise.all(tasks).catch(() => {});
+      }
+    });
+  } catch (_) {}
 }
 
 chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
@@ -352,9 +423,21 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
         extra.push(new URL(sender.tab.url).origin);
       } catch (_) {}
     }
-    clearVwoCaches(extra)
-      .then((result) => sendResponse(result))
-      .catch((error) => sendResponse({ success: false, error: error.message }));
+
+    const tabId = request.reloadTabId || (sender.tab && sender.tab.id) || null;
+    const shouldReload = request.reload !== false && !!tabId;
+
+    (async () => {
+      if (tabId) await clearPageStorageInTab(tabId);
+      const result = await clearVwoCaches(extra);
+      let reloaded = false;
+      if (shouldReload) {
+        reloaded = await reloadTabBypassCache(tabId);
+      }
+      sendResponse({ ...result, reloaded });
+    })().catch((error) => {
+      sendResponse({ success: false, error: error.message, reloaded: false });
+    });
     return true;
   }
 

@@ -838,7 +838,7 @@ const floatingButtonHTML = `
           <span class="vwo-dock-num">1</span>
           <span>Integrations</span>
         </button>
-        <button type="button" class="vwo-dock-quick-btn" data-quick="2" id="vwoQuickClearCaches" title="Clear VWO/Wingify caches and reload">
+        <button type="button" class="vwo-dock-quick-btn" data-quick="2" id="vwoQuickClearCaches" title="Clear VWO/Wingify caches, cookies, and site data, then hard-reload">
           <span class="vwo-dock-num">2</span>
           <span>Clear caches</span>
         </button>
@@ -1169,6 +1169,21 @@ async function readClipboardOnce() {
   }
 }
 
+const VWO_DATA_REGION_DETAILS = {
+  US: { code: 'US', niceName: 'US', location: 'Northern Virginia, United States' },
+  EU01: { code: 'EU01', niceName: 'EU', location: 'Belgium, European Union' },
+  AS01: { code: 'AS01', niceName: 'India', location: 'Mumbai, India' },
+  AU01: { code: 'AU01', niceName: 'Australia', location: 'Sydney, Australia' }
+};
+
+function formatDataCenterLabel(dataLocation) {
+  const code = String(dataLocation || '').trim().toUpperCase();
+  if (!code) return '—';
+  const details = VWO_DATA_REGION_DETAILS[code];
+  if (!details) return code;
+  return `${details.niceName} (${details.code}) · ${details.location}`;
+}
+
 function openModal() {
   const modal = document.getElementById('vwoImpersonateDebugger');
   if (modal) {
@@ -1189,19 +1204,25 @@ function openModal() {
     })
     .then(data => {
       // Just update the modal data fields without touching impersonation UI
-      const timeZone = data.currentAccount.timezone;
-      const timezoneOffset = data.currentAccount.timezoneOffset;
+      const account = data.currentAccount || {};
+      const timeZone = account.timezone;
+      const timezoneOffset = account.timezoneOffset;
       const utcTime = VWoImpLoginData.convertToUTC(timeZone, timezoneOffset);
       
       // Only update UI elements in the modal
+      const dataCenterEl = document.getElementById('dataCenter');
       const timezoneEl = document.getElementById('timezone');
       const utcTimeEl = document.getElementById('utcTime');
-      
+
+      if (dataCenterEl) {
+        dataCenterEl.innerText = formatDataCenterLabel(account.dataLocation);
+        dataCenterEl.title = account.dataLocation || '';
+      }
       if (timezoneEl) timezoneEl.innerText = `${timeZone} (${timezoneOffset})`;
       if (utcTimeEl) utcTimeEl.innerText = utcTime;
 
       // Update feature data without affecting impersonation UI
-      VWoImpLoginData.featureData = VWoImpLoginData.filterProperties(data.currentAccount);
+      VWoImpLoginData.featureData = VWoImpLoginData.filterProperties(account);
       
       // Initialize features for search functionality
       VWoImpLoginData.checkFeature();
@@ -1236,6 +1257,7 @@ function initializeModal() {
           <div class="vwo-two-col">
             <div class="vwo-panel">
               <div class="vwo-panel-title">Account Details</div>
+              <div class="vwo-info-row"><span class="vwo-label">Data Center</span><span id="dataCenter" class="vwo-value">—</span></div>
               <div class="vwo-info-row"><span class="vwo-label">Timezone</span><span id="timezone" class="vwo-value">—</span></div>
               <div class="vwo-info-row"><span class="vwo-label">UTC Time</span><span id="utcTime" class="vwo-value">—</span></div>
               <div class="vwo-panel-title" style="margin-top:16px">Feature Flags</div>
@@ -1306,6 +1328,7 @@ function initializeModal() {
             <div class="vwo-panel-title">Account</div>
             <div class="vwo-info-row"><span class="vwo-label">Name</span><span id="verifyAccountName" class="vwo-value">—</span></div>
             <div class="vwo-info-row"><span class="vwo-label">Account ID</span><span id="verifyAccountId" class="vwo-value">—</span></div>
+            <div class="vwo-info-row"><span class="vwo-label">Data Center</span><span id="verifyDataCenter" class="vwo-value">—</span></div>
             <div class="vwo-panel-title" style="margin-top:14px">Timezone</div>
             <div class="vwo-info-row"><span class="vwo-label">Timezone</span><span id="verifyTimezone" class="vwo-value">—</span></div>
             <div class="vwo-info-row"><span class="vwo-label">Offset</span><span id="verifyTimezoneOffset" class="vwo-value">—</span></div>
@@ -1954,6 +1977,11 @@ function initializeModal() {
       .then(data => {
         document.getElementById('verifyAccountName').textContent = data.name || '—';
         document.getElementById('verifyAccountId').textContent = data.id || accountId;
+        const verifyDcEl = document.getElementById('verifyDataCenter');
+        if (verifyDcEl) {
+          verifyDcEl.textContent = formatDataCenterLabel(data.dataLocation);
+          verifyDcEl.title = data.dataLocation || '';
+        }
         document.getElementById('verifyTimezone').textContent = data.timezone || '—';
         document.getElementById('verifyTimezoneOffset').textContent = data.timezoneOffset || '—';
 
@@ -1970,6 +1998,8 @@ function initializeModal() {
         timeEl.textContent = `Fetched in ${Date.now() - start}ms · ${new Date().toLocaleTimeString()}`;
       })
       .catch(err => {
+        const verifyDcEl = document.getElementById('verifyDataCenter');
+        if (verifyDcEl) verifyDcEl.textContent = '—';
         document.getElementById('verifyTimezone').textContent = '—';
         document.getElementById('verifyTimezoneOffset').textContent = '—';
         renderIpList(document.getElementById('verifyExcludedIps'), []);
@@ -2644,37 +2674,44 @@ function clearVwoCachesAndReload() {
 
   showCacheClearToast('Clearing VWO caches…');
 
-  const finishReload = () => {
-    showCacheClearToast('Caches cleared — reloading…');
-    const url = new URL(window.location.href);
-    url.searchParams.set('_vwo_cache_bust', String(Date.now()));
-    window.location.replace(url.toString());
-  };
-
   clearPageCachesLocally()
     .catch(() => {})
     .then(() => new Promise((resolve) => {
       if (!isExtensionContextValid()) {
-        resolve({ success: false, error: 'Extension context invalid' });
+        resolve({ success: false, error: 'Extension context invalid', reloaded: false });
         return;
       }
+      // Background clears site data + hard-reloads this tab (bypassCache).
+      // Do not rewrite the URL — SPA hash routes break with query cache-bust params.
       chrome.runtime.sendMessage(
-        { action: 'clearVwoCaches', origin: window.location.origin },
+        { action: 'clearVwoCaches', origin: window.location.origin, reload: true },
         (response) => {
           if (chrome.runtime.lastError) {
-            resolve({ success: false, error: chrome.runtime.lastError.message });
+            const msg = chrome.runtime.lastError.message || '';
+            // Tab reload closes the port — treat as reload already in progress
+            if (/message port closed|asynchronous response/i.test(msg)) {
+              resolve({ success: true, reloaded: true });
+              return;
+            }
+            resolve({ success: false, error: msg, reloaded: false });
             return;
           }
-          resolve(response || { success: false, error: 'No response' });
+          resolve(response || { success: false, error: 'No response', reloaded: false });
         }
       );
     }))
     .then((result) => {
+      if (result && result.reloaded) {
+        showCacheClearToast('Caches cleared — reloading…');
+        return;
+      }
       if (!result || !result.success) {
         console.warn('VWO Impersonate: cache clear failed', result && result.error);
         showCacheClearToast('Cache clear failed — reloading anyway…');
+      } else {
+        showCacheClearToast('Caches cleared — reloading…');
       }
-      setTimeout(finishReload, 250);
+      setTimeout(() => window.location.reload(), 250);
     });
 }
 
