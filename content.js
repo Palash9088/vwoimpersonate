@@ -838,8 +838,12 @@ const floatingButtonHTML = `
           <span class="vwo-dock-num">1</span>
           <span>Integrations</span>
         </button>
-        <button type="button" class="vwo-dock-quick-btn" data-quick="2" id="vwoQuickClearCaches" title="Clear VWO/Wingify caches, cookies, and site data, then hard-reload">
+        <button type="button" class="vwo-dock-quick-btn" data-quick="2" id="vwoQuickExperimentation" title="Open Web Experimentation">
           <span class="vwo-dock-num">2</span>
+          <span>Experimentation</span>
+        </button>
+        <button type="button" class="vwo-dock-quick-btn" data-quick="3" id="vwoQuickClearCaches" title="Clear VWO/Wingify caches, cookies, and site data, then hard-reload">
+          <span class="vwo-dock-num">3</span>
           <span>Clear caches</span>
         </button>
       </div>
@@ -2588,11 +2592,11 @@ function getCurrentAccountIdFromPage() {
   return String(VWoImpLoginData.currentAccountId || '').trim();
 }
 
-function openIntegrationsForCurrentAccount() {
+function openHashRouteForCurrentAccount(hashPath, label) {
   const resolveAndGo = (accountId) => {
     const id = String(accountId || '').trim();
     if (!/^\d+$/.test(id)) {
-      console.warn('VWO Impersonate: no account ID available for Integrations');
+      console.warn(`VWO Impersonate: no account ID available for ${label || hashPath}`);
       return;
     }
     if (typeof closeModal === 'function') {
@@ -2600,7 +2604,8 @@ function openIntegrationsForCurrentAccount() {
     }
     const dock = document.getElementById('vwoImpSideDock');
     if (dock) dock.classList.remove('vwo-open');
-    const url = `${getVwoBaseUrl()}#/configuration/integrations?accountId=${encodeURIComponent(id)}`;
+    const path = String(hashPath || '').replace(/^#\/?/, '');
+    const url = `${getVwoBaseUrl()}#/${path}?accountId=${encodeURIComponent(id)}`;
     window.location.href = url;
   };
 
@@ -2615,6 +2620,14 @@ function openIntegrationsForCurrentAccount() {
       resolveAndGo(result.currentAccountId);
     });
   });
+}
+
+function openIntegrationsForCurrentAccount() {
+  openHashRouteForCurrentAccount('configuration/integrations', 'Integrations');
+}
+
+function openExperimentationForCurrentAccount() {
+  openHashRouteForCurrentAccount('web-experimentation', 'Experimentation');
 }
 
 function openSideDock() {
@@ -2721,6 +2734,10 @@ function runDockQuickAction(key) {
     return true;
   }
   if (String(key) === '2') {
+    openExperimentationForCurrentAccount();
+    return true;
+  }
+  if (String(key) === '3') {
     clearVwoCachesAndReload();
     return true;
   }
@@ -2739,6 +2756,15 @@ if (vwoQuickIntegrations) {
     e.preventDefault();
     e.stopPropagation();
     openIntegrationsForCurrentAccount();
+  });
+}
+
+const vwoQuickExperimentation = document.getElementById('vwoQuickExperimentation');
+if (vwoQuickExperimentation) {
+  vwoQuickExperimentation.addEventListener('click', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    openExperimentationForCurrentAccount();
   });
 }
 
