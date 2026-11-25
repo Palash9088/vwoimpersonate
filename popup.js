@@ -96,16 +96,42 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
-  // Load saved data
-  chrome.storage.local.get(['originalAccountId', 'originalEmail', 'defaultAccountId', 'defaultAccountName'], function(result) {
-    if (result.originalAccountId) accountIdInput.value = result.originalAccountId;
-    if (result.originalEmail) emailInput.value = result.originalEmail;
-    if (result.defaultAccountId) defaultAccountIdInput.value = result.defaultAccountId;
-    if (result.defaultAccountName) defaultAccountNameInput.value = result.defaultAccountName;
-    
-    // Check if original account info is set
-    checkOriginalAccountStatus();
+  function getSelectedDockSide() {
+    const selected = document.querySelector('input[name="dockSide"]:checked');
+    return selected && selected.value === 'left' ? 'left' : 'right';
+  }
+
+  function setDockSideRadios(side) {
+    const value = side === 'left' ? 'left' : 'right';
+    const radio = document.querySelector(`input[name="dockSide"][value="${value}"]`);
+    if (radio) radio.checked = true;
+  }
+
+  // Apply side immediately so it does not depend on Exit Impersonation fields
+  document.querySelectorAll('input[name="dockSide"]').forEach((radio) => {
+    radio.addEventListener('change', function () {
+      const vwoDockSide = getSelectedDockSide();
+      chrome.storage.local.set({ vwoDockSide }, function () {
+        statusMessage.textContent = `Sidebar set to ${vwoDockSide}.`;
+        statusMessage.className = 'success-message';
+      });
+    });
   });
+
+  // Load saved data
+  chrome.storage.local.get(
+    ['originalAccountId', 'originalEmail', 'defaultAccountId', 'defaultAccountName', 'vwoDockSide'],
+    function (result) {
+      if (result.originalAccountId) accountIdInput.value = result.originalAccountId;
+      if (result.originalEmail) emailInput.value = result.originalEmail;
+      if (result.defaultAccountId) defaultAccountIdInput.value = result.defaultAccountId;
+      if (result.defaultAccountName) defaultAccountNameInput.value = result.defaultAccountName;
+      setDockSideRadios(result.vwoDockSide || 'right');
+
+      // Check if original account info is set
+      checkOriginalAccountStatus();
+    }
+  );
 
   form.addEventListener('submit', function(e) {
     e.preventDefault();
@@ -113,6 +139,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const originalEmail = emailInput.value.trim();
     const defaultAccountId = defaultAccountIdInput.value.trim();
     const defaultAccountName = defaultAccountNameInput.value.trim();
+    const vwoDockSide = getSelectedDockSide();
 
     if (!originalAccountId) {
       statusMessage.textContent = 'Please enter your original Account ID.';
@@ -131,7 +158,8 @@ document.addEventListener('DOMContentLoaded', function() {
       originalAccountId, 
       originalEmail,
       defaultAccountId,
-      defaultAccountName 
+      defaultAccountName,
+      vwoDockSide
     }, function() {
       statusMessage.textContent = 'Settings saved successfully!';
       statusMessage.className = 'success-message';

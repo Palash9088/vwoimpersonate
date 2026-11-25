@@ -865,20 +865,36 @@ document.body.insertAdjacentHTML('beforeend', floatingButtonHTML);
 const vwoDockContainer = document.getElementById('floatingButtonContainer');
 if (vwoDockContainer) vwoDockContainer.style.visibility = 'hidden';
 
+function applyDockSide(side) {
+  const container = document.getElementById('floatingButtonContainer');
+  if (!container) return;
+  const isLeft = String(side || '').toLowerCase() === 'left';
+  container.classList.toggle('vwo-dock-left', isLeft);
+}
+
 // Vertical drag for the side dock
 (function initDockDrag() {
   const container = document.getElementById('floatingButtonContainer');
   const handle    = document.getElementById('vwoImpTabHandle');
   if (!container || !handle) return;
 
-  // Restore saved position
+  // Restore saved vertical + side position
   safeStorageAccess(() => {
-    chrome.storage.local.get('vwoDockTopPct', function (r) {
+    chrome.storage.local.get(['vwoDockTopPct', 'vwoDockSide'], function (r) {
       if (r.vwoDockTopPct !== undefined) {
         container.style.top = r.vwoDockTopPct + '%';
       }
+      applyDockSide(r.vwoDockSide || 'right');
     });
   });
+
+  // Live-update when popup settings change side
+  try {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area !== 'local' || !changes.vwoDockSide) return;
+      applyDockSide(changes.vwoDockSide.newValue || 'right');
+    });
+  } catch (_) {}
 
   let startY = 0;
   let startTop = 0;
@@ -948,10 +964,16 @@ const floatingButtonCSS = `
 #floatingButtonContainer {
   position: fixed;
   right: 0;
+  left: auto;
   top: 50%;
   z-index: 2147483646;
   pointer-events: none;
   transition: top 0.1s ease;
+}
+
+#floatingButtonContainer.vwo-dock-left {
+  left: 0;
+  right: auto;
 }
 
 #floatingButtonContainer.vwo-dragging {
@@ -975,6 +997,10 @@ const floatingButtonCSS = `
   position: relative;
 }
 
+#floatingButtonContainer.vwo-dock-left #vwoImpSideDock {
+  flex-direction: row;
+}
+
 #vwoImpTabHandle {
   display: flex;
   flex-direction: column;
@@ -995,9 +1021,18 @@ const floatingButtonCSS = `
   z-index: 2;
 }
 
+#floatingButtonContainer.vwo-dock-left #vwoImpTabHandle {
+  border-radius: 0 8px 8px 0;
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.2);
+}
+
 #vwoImpTabLabel {
   writing-mode: vertical-rl;
   text-orientation: mixed;
+}
+
+#floatingButtonContainer.vwo-dock-left #vwoImpTabLabel {
+  writing-mode: vertical-lr;
 }
 
 #vwoImpTabDot {
@@ -1024,6 +1059,7 @@ const floatingButtonCSS = `
   /* Keep out of document flow so a closed panel does not block page clicks */
   position: absolute;
   right: 100%;
+  left: auto;
   top: 50%;
   transform: translate(12px, -50%);
   opacity: 0;
@@ -1033,11 +1069,23 @@ const floatingButtonCSS = `
   min-width: 170px;
 }
 
+#floatingButtonContainer.vwo-dock-left #vwoImpPanel {
+  left: 100%;
+  right: auto;
+  border-radius: 0 8px 8px 0;
+  box-shadow: 4px 0 16px rgba(0, 0, 0, 0.25);
+  transform: translate(-12px, -50%);
+}
+
 #vwoImpSideDock.vwo-open #vwoImpPanel {
   transform: translate(0, -50%);
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
+}
+
+#floatingButtonContainer.vwo-dock-left #vwoImpSideDock.vwo-open #vwoImpPanel {
+  transform: translate(0, -50%);
 }
 
 #floatingButton,

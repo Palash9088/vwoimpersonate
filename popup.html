@@ -118,6 +118,23 @@
       color: #f44336;
       margin-left: 3px;
     }
+    .radio-row {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 8px;
+    }
+    .radio-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 600;
+      color: #555;
+      cursor: pointer;
+      margin-bottom: 0;
+    }
+    .radio-label input {
+      margin: 0;
+    }
   </style>
 </head>
 <body>
@@ -153,6 +170,23 @@
         
         <label for="defaultAccountNameInput">Default Account Name:</label>
         <input type="text" id="defaultAccountNameInput" name="defaultAccountName" placeholder="Default Account Name (optional)">
+      </div>
+
+      <div class="section">
+        <h2>Sidebar Position</h2>
+        <p class="section-description">
+          Choose which edge of the page the VWO Impersonate side dock sits on.
+        </p>
+        <div class="radio-row" role="radiogroup" aria-label="Sidebar position">
+          <label class="radio-label" for="dockSideRight">
+            <input type="radio" name="dockSide" id="dockSideRight" value="right" checked>
+            <span>Right</span>
+          </label>
+          <label class="radio-label" for="dockSideLeft">
+            <input type="radio" name="dockSide" id="dockSideLeft" value="left">
+            <span>Left</span>
+          </label>
+        </div>
       </div>
       
       <button type="submit" id="submitButton">Save Settings</button>
