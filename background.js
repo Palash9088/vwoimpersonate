@@ -479,10 +479,19 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'exitImpersonate') {
-    const authBase = request.authBaseUrl ||
-      (sender.tab && sender.tab.url && sender.tab.url.includes('wingify.com')
-        ? 'https://app.wingify.com/'
-        : 'https://app.vwo.com/');
+    // Prefer caller-provided base; otherwise derive from the tab so TA stays on TA.
+    let authBase = request.authBaseUrl;
+    if (!authBase && sender.tab && sender.tab.url) {
+      try {
+        const tabUrl = new URL(sender.tab.url);
+        if (tabUrl.hostname.endsWith('wingify.com') || tabUrl.hostname.endsWith('vwo.com')) {
+          authBase = `${tabUrl.origin}/`;
+        }
+      } catch (_) {}
+    }
+    if (!authBase) {
+      authBase = 'https://app.vwo.com/';
+    }
     const email = request.email;
 
     if (!email) {

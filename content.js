@@ -9,11 +9,17 @@ function getVwoBaseUrl() {
   return 'https://app.vwo.com/';
 }
 
-// Returns the auth base URL for logout/SSO — always uses the main app domain,
-// not a testapp subdomain.
+// Returns the auth base URL for logout/SSO.
+// Must stay on the current origin (including testapps like vwotestapp41.wingify.com).
+// Using app.wingify.com / app.vwo.com while on a TA logs out the wrong host and
+// drops the TA session across browsers.
 function getAuthBaseUrl() {
-  const host = window.location.hostname;
-  if (host.endsWith('wingify.com')) return 'https://app.wingify.com/';
+  if (window.location && window.location.origin && window.location.origin !== 'null') {
+    const host = window.location.hostname;
+    if (host.endsWith('wingify.com') || host.endsWith('vwo.com')) {
+      return `${window.location.origin}/`;
+    }
+  }
   return 'https://app.vwo.com/';
 }
 
@@ -1438,8 +1444,18 @@ function initializeModal() {
                   </select>
                 </div>
                 <div class="vwo-form">
-                  <label class="vwo-label" for="grantReason">Reason</label>
-                  <input type="text" id="grantReason" class="vwo-input" placeholder="e.g. QF-20123" required>
+                  <label class="vwo-label">Reason</label>
+                  <div class="vwo-reason-radios" role="radiogroup" aria-label="Grant reason">
+                    <label class="vwo-checkbox-label" for="grantReasonMigration">
+                      <input type="radio" name="grantReasonOption" id="grantReasonMigration" value="Migration Check" checked>
+                      <span>Migration Check</span>
+                    </label>
+                    <label class="vwo-checkbox-label" for="grantReasonOther">
+                      <input type="radio" name="grantReasonOption" id="grantReasonOther" value="other">
+                      <span>Other</span>
+                    </label>
+                  </div>
+                  <input type="text" id="grantReason" class="vwo-input" placeholder="e.g. QF-20123" style="display:none" autocomplete="off">
                 </div>
                 <div class="vwo-form vwo-grant-impersonate-opt">
                   <label class="vwo-checkbox-label" for="grantAlsoImpersonate">
@@ -1860,6 +1876,12 @@ function initializeModal() {
     .vwo-grant-result { margin-top: 12px; max-height: 180px; }
     .vwo-grant-login-gate .vwo-grant-actions { margin-bottom: 12px; }
     .vwo-grant-login-gate .vwo-btn { width: auto; }
+    .vwo-reason-radios {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin: 6px 0 10px;
+    }
     .vwo-grant-impersonate-opt {
       margin-top: 16px;
       padding: 12px 14px;
@@ -2445,7 +2467,11 @@ function initializeModal() {
     const accountId = document.getElementById('grantAccountId').value.trim();
     const userId = document.getElementById('grantUserId').value.trim();
     const permissionId = document.getElementById('grantPermissionId').value.trim() || '0';
-    const reason = document.getElementById('grantReason').value.trim();
+    const reasonOption = document.querySelector('input[name="grantReasonOption"]:checked');
+    const customReason = document.getElementById('grantReason').value.trim();
+    const reason = reasonOption && reasonOption.value !== 'other'
+      ? reasonOption.value.trim()
+      : customReason;
     const alsoImpersonate = !!(alsoImpersonateEl && alsoImpersonateEl.checked);
     const validity = '14';
 
@@ -2456,7 +2482,9 @@ function initializeModal() {
     }
 
     if (!impersonatorEmailId || !accountId || !reason) {
-      errorEl.textContent = 'Please fill in Impersonator Email ID, Account ID, and Reason.';
+      errorEl.textContent = reasonOption && reasonOption.value === 'other'
+        ? 'Please fill in Impersonator Email ID, Account ID, and a custom Reason.'
+        : 'Please fill in Impersonator Email ID, Account ID, and Reason.';
       return;
     }
 
@@ -2531,6 +2559,21 @@ function initializeModal() {
     grantAlsoImpersonate.addEventListener('change', syncGrantBtnLabel);
     syncGrantBtnLabel();
   }
+
+  const grantReasonInput = document.getElementById('grantReason');
+  const grantReasonRadios = document.querySelectorAll('input[name="grantReasonOption"]');
+  function syncGrantReasonInput() {
+    if (!grantReasonInput) return;
+    const selected = document.querySelector('input[name="grantReasonOption"]:checked');
+    const isOther = !!(selected && selected.value === 'other');
+    grantReasonInput.style.display = isOther ? '' : 'none';
+    grantReasonInput.required = isOther;
+    if (isOther) grantReasonInput.focus();
+  }
+  grantReasonRadios.forEach((radio) => {
+    radio.addEventListener('change', syncGrantReasonInput);
+  });
+  syncGrantReasonInput();
 }
 
 function convertToUTC() {
